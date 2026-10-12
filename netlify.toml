@@ -1,0 +1,19 @@
+# Static site: no build step, the repo root is the site.
+[build]
+  publish = "."
+  command = ""
+
+# Game code changes often: always revalidate scripts and the page.
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+[[headers]]
+  for = "/js/*"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+# Artwork rarely changes.
+[[headers]]
+  for = "/img/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"

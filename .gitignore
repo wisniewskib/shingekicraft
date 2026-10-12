@@ -1,0 +1,9 @@
+# local tooling
+.claude/
+.impeccable/
+# full-size artwork sources (the game uses the web versions in img/)
+art-src/
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp

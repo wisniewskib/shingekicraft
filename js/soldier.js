@@ -9,7 +9,7 @@ import { audio } from './audio.js';
 import { clamp, angleDiff, damp } from './util.js';
 
 const GRAV = 24, RUN = 9.5, JUMP = 9.5, AIR_ACC = 11, BOOST = 19;
-const MAX_SPEED = 55, ANCHOR_STOP = 1.6;
+const MAX_SPEED = 46, SWING_CAP = 32, ANCHOR_STOP = 1.6;
 export const HOOK_RANGE = 95;
 const HW = 0.3, HGT = 1.8;
 
@@ -273,9 +273,9 @@ export class Soldier {
       if (dist < 0.01) continue;
       const n = to.divideScalar(dist);
       // the winch: always a light pull, Shift winds in hard
-      const reel = this.gas > 0 ? 6 + 26 * reelK : 0;
+      const reel = this.gas > 0 ? 4 + 22 * reelK : 0;
       h.len = Math.max(ANCHOR_STOP, Math.min(h.len, dist) - reel * dt);
-      if (this.gas > 0) v.addScaledVector(n, (6.5 + 38.5 * reelK) * dt);
+      if (this.gas > 0) v.addScaledVector(n, (3.5 + 35 * reelK) * dt);
       // gear brake: arrive at the anchor instead of splatting into it
       const vr = v.dot(n), room = Math.max(0, dist - ANCHOR_STOP);
       const vmax = Math.sqrt(2 * 55 * room) + 3;
@@ -289,6 +289,11 @@ export class Soldier {
     }
     if (hooked.length) this.gas = Math.max(0, this.gas - (0.35 + 3.15 * reelK) * dt);
     this.reeling = reelK > 0;
+    // a long swing alone shouldn't snowball into silly speeds: bleed off anything above the cap
+    if (hooked.length && !this.boosting && !this.reeling) {
+      const sp = v.length();
+      if (sp > SWING_CAP) v.multiplyScalar(1 - Math.min(0.5, ((sp - SWING_CAP) / sp) * 3 * dt));
+    }
     // air drag grows with speed
     const spd = v.length();
     if (!this.ground) v.multiplyScalar(1 - Math.min(0.5, (0.015 + spd * 0.0011) * dt));

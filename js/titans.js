@@ -60,6 +60,7 @@ export class Titan {
 
   pickWander() {
     if (this.ally) return new THREE.Vector3(rand(10, W - 10), 0, rand(10, D - 10));
+    if (this.game.world.def.breached && Math.random() < 0.45) return new THREE.Vector3(rand(10, W - 10), 0, rand(8, WALLZ - 8));
     const p = this.game.world.randomOutside(Math.random, WALLZ + 12);
     return new THREE.Vector3(p.x, 0, p.z);
   }
@@ -172,6 +173,9 @@ export class Titan {
       target.copy(this.wander);
     }
 
+    // breached wall: anything inside the district is reached through the hole in the gate
+    const gateX = (GATE_X0 + GATE_X1) / 2 + 0.5;
+    if (g.world.def.breached && !this.ally && target.z < WALLZ && this.pos.z > WALLZ + 2 && Math.abs(this.pos.x - gateX) > 4) target.set(gateX, 0, WALLZ + 6);
     this.cool = Math.max(0, this.cool - dt);
     this.stagger = Math.max(0, this.stagger - dt);
     let moveSpeed = 0;
@@ -271,7 +275,8 @@ export class Titan {
       const dx = this.pos.x - o.pos.x, dz = this.pos.z - o.pos.z, d = Math.hypot(dx, dz), min = this.radius + o.radius + 1;
       if (d < min && d > 0.01) { this.pos.x += (dx / d) * (min - d) * 0.5; this.pos.z += (dz / d) * (min - d) * 0.5; }
     }
-    if (!this.ally) {
+    const throughGate = g.world.def.breached && Math.abs(this.pos.x - (GATE_X0 + GATE_X1) / 2 - 0.5) < 6;
+    if (!this.ally && !throughGate && this.pos.z > WALLZ - 1) {
       const wallStop = WALLZ + 3 + this.height * 0.1;
       if (this.pos.z < wallStop) {
         this.pos.z = wallStop;

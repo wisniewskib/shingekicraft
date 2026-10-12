@@ -19,7 +19,8 @@
 
   /* ---------- screens ---------- */
   .screen { position: fixed; inset: 0; display: none; z-index: 20; }
-  .screen.on { display: flex; }
+  .screen.on { display: flex; overflow-y: auto; }
+  .screen .panel { padding: 24px 0; }
   .vignette { background: linear-gradient(90deg, rgba(0,0,0,.88) 0%, rgba(0,0,0,.55) 40%, rgba(0,0,0,0) 72%); }
   .panel { margin: auto auto auto 7vw; max-width: 540px; width: calc(100% - 32px); }
   .title { font-family: 'Cinzel', serif; font-weight: 900; font-size: clamp(52px, 8.5vw, 104px); line-height: .92; letter-spacing: .02em; color: #f4ead2; text-shadow: 0 4px 0 #2a1d0c, 0 0 40px rgba(0,0,0,.6); margin: 0; }
@@ -253,13 +254,18 @@
   #chatFeed div { animation: fade 9s forwards; }
   #chatIn { position: absolute; left: 16px; bottom: 170px; width: 340px; display: none; pointer-events: auto; font: 500 15px 'Oswald'; color: #fff; background: rgba(12,14,18,.85); border: 1px solid var(--gold); border-radius: 3px; padding: 7px 10px; outline: none; }
 
-  #mapPick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 520px; margin-bottom: 8px; }
-  .mapchip { text-align: left; background: rgba(12,14,18,.82); border: 1px solid rgba(255,255,255,.12); border-radius: 4px; padding: 10px 12px; color: var(--text); cursor: pointer; font-family: 'Oswald', sans-serif; transition: background .12s, border-color .12s; }
+  #mapPick { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; max-width: 900px; margin-bottom: 8px; }
+  #freeroam .panel { max-width: 900px; }
+  .mapchip img { display: block; width: calc(100% + 24px); margin: -10px -12px 8px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 4px 4px 0 0; image-rendering: auto; }
+  .mapchip.on img { outline: 2px solid var(--gold2); outline-offset: -2px; }
+  .mapchip { overflow: hidden; text-align: left; background: rgba(12,14,18,.82); border: 1px solid rgba(255,255,255,.12); border-radius: 4px; padding: 10px 12px; color: var(--text); cursor: pointer; font-family: 'Oswald', sans-serif; transition: background .12s, border-color .12s; }
   .mapchip b { display: block; font: 700 16px 'Cinzel', serif; color: #f4ead2; }
-  .mapchip small { display: block; margin-top: 4px; font-size: 12px; line-height: 1.35; color: var(--muted); }
+  .mapchip small { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 3px; font-size: 12px; line-height: 1.3; color: var(--muted); }
   .mapchip:hover, .mapchip:focus-visible { border-color: var(--gold); outline: none; }
   .mapchip.on { border-color: var(--gold2); background: rgba(232,196,106,.18); }
-  @media (max-width: 760px) { #mapPick { grid-template-columns: 1fr; } }
+  .mapprev { display: block; width: 100%; max-width: 400px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 4px; border: 1px solid rgba(232,196,106,.45); margin-top: 8px; }
+  @media (max-width: 1100px) { #mapPick { grid-template-columns: repeat(3, 1fr); } }
+  @media (max-width: 760px) { #mapPick { grid-template-columns: repeat(2, 1fr); } }
 
   /* ---------- touch ---------- */
   #touch { position: fixed; inset: 0; z-index: 15; display: none; }
@@ -382,6 +388,7 @@
   <div id="lobbyPlayers" class="plist"></div>
   <label class="fld">MISJA<select id="lobbyMission"></select></label>
   <label class="fld">MAPA<select id="lobbyMap"></select></label>
+  <img id="lobbyMapImg" class="mapprev" src="img/map-forest.webp" alt="Podgląd wybranej mapy">
   <p id="lobbyMapNote" class="mpnote"></p>
   <div id="lobbyChat" class="chatlog"></div>
   <div class="joinrow"><input id="lobbyChatIn" maxlength="140" placeholder="Napisz coś…" autocomplete="off"><button class="btn mini" id="lobbyChatSend">Wyślij</button></div>

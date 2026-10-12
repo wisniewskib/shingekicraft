@@ -216,8 +216,9 @@ class Game {
     this.scene.background = new THREE.Color(0xa8d0f5);
     this.scene.fog = new THREE.Fog(0xb9dbf7, 80, 260);
     this.camera = new THREE.PerspectiveCamera(72, 1, 0.1, 300);
-    this.scene.add(new THREE.HemisphereLight(0xe4f1ff, 0x5c6b3c, 1.25));
-    const sun = new THREE.DirectionalLight(0xfff0d8, 1.5);
+    this.hemi = new THREE.HemisphereLight(0xe4f1ff, 0x5c6b3c, 1.25);
+    this.scene.add(this.hemi);
+    const sun = (this.sun = new THREE.DirectionalLight(0xfff0d8, 1.5));
     sun.position.set(60, 120, 30);
     this.scene.add(sun);
     this.buildSky();
@@ -282,8 +283,8 @@ class Game {
     const s = this.settings;
     this.input.sensitivity = 0.0022 * s.sens;
     audio.setVolumes(s.vol, s.music);
-    this.scene.fog.near = s.view * 0.35;
-    this.scene.fog.far = s.view;
+    this.scene.fog.near = s.view * (this.night ? 0.15 : 0.35);
+    this.scene.fog.far = this.night ? s.view * 0.7 : s.view;
     this.camera.far = s.view + 20;
     this.camera.updateProjectionMatrix();
     store('settings', s);
@@ -292,8 +293,9 @@ class Game {
   buildSky() {
     const sky = new THREE.Mesh(new THREE.SphereGeometry(60, 24, 12), new THREE.ShaderMaterial({
       side: THREE.BackSide, depthWrite: false, depthTest: false,
+      uniforms: { top: { value: new THREE.Color(0.28, 0.55, 0.92) }, hor: { value: new THREE.Color(0.73, 0.86, 0.97) } },
       vertexShader: 'varying vec3 vP; void main(){ vP=normalize(position); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
-      fragmentShader: 'varying vec3 vP; void main(){ float h=clamp(vP.y,0.0,1.0); vec3 top=vec3(0.28,0.55,0.92); vec3 hor=vec3(0.73,0.86,0.97); gl_FragColor=vec4(mix(hor,top,pow(h,0.6)),1.0); }',
+      fragmentShader: 'uniform vec3 top; uniform vec3 hor; varying vec3 vP; void main(){ float h=clamp(vP.y,0.0,1.0); gl_FragColor=vec4(mix(hor,top,pow(h,0.6)),1.0); }',
     }));
     sky.renderOrder = -1;
     sky.frustumCulled = false;
@@ -329,6 +331,26 @@ class Game {
     this.buildSupplyBeams();
     this.buildMinimap();
     this.mapId = id;
+    this.applyLook(this.world.def.look || 'day');
+  }
+
+  // Day or night lighting for the current map.
+  applyLook(look) {
+    const night = look === 'night';
+    const u = this.sky.material.uniforms;
+    u.top.value.set(night ? 0x060b1c : 0x478ceb);
+    u.hor.value.set(night ? 0x1d2a4a : 0xbadcf7);
+    this.scene.background.set(night ? 0x0d1528 : 0xa8d0f5);
+    this.scene.fog.color.set(night ? 0x141e36 : 0xb9dbf7);
+    this.hemi.color.set(night ? 0x8090c0 : 0xe4f1ff);
+    this.hemi.groundColor.set(night ? 0x14161e : 0x5c6b3c);
+    this.hemi.intensity = night ? 0.55 : 1.25;
+    this.sun.color.set(night ? 0xa8bcff : 0xfff0d8);
+    this.sun.intensity = night ? 0.7 : 1.5;
+    this.world.material.color.setScalar(night ? 0.42 : 1); // the terrain is unlit, so darken it directly
+    this.clouds.visible = !night;
+    this.night = night;
+    if (this.input) this.applySettings();
   }
 
   // Titans breaking blocks on the authority; clients replay the same smash so worlds stay identical.
@@ -492,6 +514,7 @@ class Game {
     sel.disabled = !n.isHost;
     const mapSel = $('#lobbyMap');
     mapSel.value = n.isHost ? this.mapChoice : (this.lobbyMap || 'forest');
+    $('#lobbyMapImg').src = `img/map-${n.missionKey === 'free-s' ? mapSel.value : 'forest'}.webp`;
     mapSel.disabled = !n.isHost || n.missionKey !== 'free-s';
     $('#lobbyMapNote').textContent = n.missionKey === 'free-s' ? '' : 'Misje grane są na mapie Ostoja.';
     $('#lobbyStart').style.display = n.isHost ? '' : 'none';
@@ -568,7 +591,7 @@ class Game {
       audio.init(); this.campaign = false; this.requestMission(FREE[b.dataset.free]);
     }));
     const mapRow = $('#mapPick');
-    mapRow.innerHTML = Object.entries(MAPS).map(([k, m]) => `<button class="mapchip" data-map="${k}"><b>${m.name}</b><small>${m.desc}</small></button>`).join('');
+    mapRow.innerHTML = Object.entries(MAPS).map(([k, m]) => `<button class="mapchip" data-map="${k}"><img src="img/map-${k}.webp" alt="Podgląd mapy ${m.name}"><b>${m.name}</b><small>${m.desc}</small></button>`).join('');
     const markMap = () => mapRow.querySelectorAll('.mapchip').forEach((b) => b.classList.toggle('on', b.dataset.map === this.mapChoice));
     mapRow.querySelectorAll('.mapchip').forEach((b) => b.onclick = () => { this.mapChoice = b.dataset.map; store('map', this.mapChoice); markMap(); audio.init(); audio.play('ui'); if (this.net && this.net.isHost) this.net.setMission(this.net.missionKey); });
     markMap();
@@ -1305,7 +1328,7 @@ class Game {
       this.gateCheckT -= dt;
       if (this.gateCheckT <= 0) {
         this.gateCheckT = 0.4;
-        this.gatePct = (100 * this.world.countGate()) / this.world.gateTotal;
+        this.gatePct = this.world.gateTotal ? (100 * this.world.countGate()) / this.world.gateTotal : 0;
         if (!this.gateBroken && (this.gatePct < 30 || T.pos.z < WALLZ - 3)) {
           this.gateBroken = true;
           this.hud.popup('MUR PRZEŁAMANY', 'DZIELNICA STOI OTWOREM', '+5 000');

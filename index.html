@@ -253,6 +253,14 @@
   #chatFeed div { animation: fade 9s forwards; }
   #chatIn { position: absolute; left: 16px; bottom: 170px; width: 340px; display: none; pointer-events: auto; font: 500 15px 'Oswald'; color: #fff; background: rgba(12,14,18,.85); border: 1px solid var(--gold); border-radius: 3px; padding: 7px 10px; outline: none; }
 
+  #mapPick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 520px; margin-bottom: 8px; }
+  .mapchip { text-align: left; background: rgba(12,14,18,.82); border: 1px solid rgba(255,255,255,.12); border-radius: 4px; padding: 10px 12px; color: var(--text); cursor: pointer; font-family: 'Oswald', sans-serif; transition: background .12s, border-color .12s; }
+  .mapchip b { display: block; font: 700 16px 'Cinzel', serif; color: #f4ead2; }
+  .mapchip small { display: block; margin-top: 4px; font-size: 12px; line-height: 1.35; color: var(--muted); }
+  .mapchip:hover, .mapchip:focus-visible { border-color: var(--gold); outline: none; }
+  .mapchip.on { border-color: var(--gold2); background: rgba(232,196,106,.18); }
+  @media (max-width: 760px) { #mapPick { grid-template-columns: 1fr; } }
+
   /* ---------- touch ---------- */
   #touch { position: fixed; inset: 0; z-index: 15; display: none; }
   #touch.on.play { display: block; }
@@ -351,6 +359,8 @@
 
 <div id="freeroam" class="screen vignette"><div class="panel">
   <h2 class="sub">Wolna gra</h2>
+  <div class="fld">MAPA</div>
+  <div id="mapPick"></div>
   <button class="btn" data-free="soldier">Zwiadowca<small>Tytany nigdy nie przestają przychodzić. Poluj na nie w lesie.</small></button>
   <button class="btn" data-free="titan">Tytan<small>Wybierz jednego z dziewięciu tytanów (albo losowego). Burz mur, zbijaj zwiadowców.</small></button>
   <button class="btn back" data-go="menu">Wróć</button>
@@ -371,6 +381,8 @@
   <div class="codebox"><span>KOD</span><b id="lobbyCode">-----</b><button class="btn mini" id="copyLink">Kopiuj link</button></div>
   <div id="lobbyPlayers" class="plist"></div>
   <label class="fld">MISJA<select id="lobbyMission"></select></label>
+  <label class="fld">MAPA<select id="lobbyMap"></select></label>
+  <p id="lobbyMapNote" class="mpnote"></p>
   <div id="lobbyChat" class="chatlog"></div>
   <div class="joinrow"><input id="lobbyChatIn" maxlength="140" placeholder="Napisz coś…" autocomplete="off"><button class="btn mini" id="lobbyChatSend">Wyślij</button></div>
   <button class="btn" id="lobbyStart">Rozpocznij misję</button>

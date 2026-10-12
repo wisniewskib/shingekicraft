@@ -1,6 +1,6 @@
 // Shingekicraft — game loop, camera, missions, scoring, HUD, menus, settings.
 import * as THREE from 'three';
-import { World, W, D, H, WALLZ, GATE_X0, GATE_X1, BLOCK_COLORS } from './world.js';
+import { World, MAPS, B, W, D, H, WALLZ, GATE_X0, GATE_X1, BLOCK_COLORS } from './world.js';
 import { makeAtlas } from './textures.js';
 import { Particles } from './particles.js';
 import { Soldier, HOOK_RANGE } from './soldier.js';
@@ -16,6 +16,7 @@ import { NET } from './net/config.js';
 
 const $ = (s) => document.querySelector(s);
 const GATE_CX = (GATE_X0 + GATE_X1) / 2 + 0.5;
+const HARD_BLOCKS = new Set([B.BRICK, B.GATE, B.DARK, B.CRATE, B.BEDROCK]);
 
 const QUALITY = {
   high: { label: 'Wysoka', pr: 1.5, far: 260, aa: true },
@@ -221,11 +222,9 @@ class Game {
     this.scene.add(sun);
     this.buildSky();
 
-    this.world = new World(1337);
-    this.world.generate();
-    this.world.initMeshes(this.scene, makeAtlas());
-    this.buildSupplyBeams();
-    this.buildMinimap();
+    this.atlas = makeAtlas();
+    this.mapChoice = MAPS[store('map')] ? store('map') : 'forest';
+    this.loadMap(this.mapChoice, true);
     this.particles = new Particles(this.scene);
     this.input = new Input(this.canvas);
     this.input.onLockChange = (locked) => { if (!locked && this.state === 'play' && !this.input.touch) this.pause(); };
@@ -315,13 +314,43 @@ class Game {
     this.scene.add(inst);
   }
 
+  // Swap the whole voxel world (map choice). Takes a moment, so the loading screen covers it.
+  loadMap(id, first = false) {
+    if (!MAPS[id]) id = 'forest';
+    if (!first && this.world && this.world.map === id) return;
+    if (this.world) {
+      this.scene.remove(this.world.group);
+      for (const m of this.world.meshes) if (m) m.geometry.dispose();
+      for (const b of this.beams || []) this.scene.remove(b);
+    }
+    this.world = new World(1337, id);
+    this.world.generate();
+    this.world.initMeshes(this.scene, this.atlas);
+    this.buildSupplyBeams();
+    this.buildMinimap();
+    this.mapId = id;
+  }
+
+  // Titans breaking blocks on the authority; clients replay the same smash so worlds stay identical.
+  crush(c, r) {
+    const out = [];
+    const n = this.world.destroySphere(c.x, c.y, c.z, r, out, { skip: HARD_BLOCKS });
+    if (!n) return;
+    this.world.dirtyFlag = true;
+    this.particles.debris(out, BLOCK_COLORS);
+    if (n > 3 && this.camera.position.distanceTo(c) < 60) audio.play('crumble', 0.5);
+    if (this.net && this.net.isHost) this.net.broadcast({ t: T.EV, e: 'crush', at: vec(c), r });
+  }
+
   buildSupplyBeams() {
+    this.beams = [];
     const mat = new THREE.MeshBasicMaterial({ color: 0x6ff3ff, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false });
     const geo = new THREE.CylinderGeometry(0.7, 0.7, 90, 8, 1, true);
     for (const s of this.world.supplies) {
       const m = new THREE.Mesh(geo, mat);
       m.position.set(s.x, s.y + 45, s.z);
       this.scene.add(m);
+      this.beams.push(m);
     }
   }
 
@@ -399,6 +428,9 @@ class Game {
     sel.innerHTML = [['free-s', 'Wolna gra · bez końca'], ['m1', 'Pierwsza wyprawa'], ['m2', 'Obrona bramy'], ['m3', 'Polowanie na odmieńców'], ['m5', 'Ostatni bastion']]
       .map(([k, n]) => `<option value="${k}">${n}</option>`).join('');
     sel.onchange = () => { if (this.net && this.net.isHost) this.net.setMission(sel.value); };
+    const mapSel = $('#lobbyMap');
+    mapSel.innerHTML = Object.entries(MAPS).map(([k, m]) => `<option value="${k}">${m.name}</option>`).join('');
+    mapSel.onchange = () => { if (this.net && this.net.isHost) { this.mapChoice = mapSel.value; store('map', mapSel.value); this.net.setMission(this.net.missionKey); } };
     $('#lobbyStart').onclick = () => { if (this.net && this.net.isHost) { audio.play('ui'); this.net.start(sel.value); } };
     $('#lobbyLeave').onclick = () => { this.dropNet(); this.toMenu(); this.showScreen('mp'); };
     $('#copyLink').onclick = () => {
@@ -458,14 +490,18 @@ class Game {
     const sel = $('#lobbyMission');
     sel.value = n.missionKey;
     sel.disabled = !n.isHost;
+    const mapSel = $('#lobbyMap');
+    mapSel.value = n.isHost ? this.mapChoice : (this.lobbyMap || 'forest');
+    mapSel.disabled = !n.isHost || n.missionKey !== 'free-s';
+    $('#lobbyMapNote').textContent = n.missionKey === 'free-s' ? '' : 'Misje grane są na mapie Ostoja.';
     $('#lobbyStart').style.display = n.isHost ? '' : 'none';
     $('#lobbyWait').style.display = n.isHost ? 'none' : '';
     this.renderBoard();
   }
 
-  onNetStart(key) {
+  onNetStart(key, map) {
     this.campaign = false;
-    this.startMission(this.missionByKey(key));
+    this.startMission(this.missionByKey(key), map || 'forest');
   }
   onNetEnd(m) {
     this.applyBoard(m.board);
@@ -531,6 +567,11 @@ class Game {
     document.querySelectorAll('[data-free]').forEach((b) => b.addEventListener('click', () => {
       audio.init(); this.campaign = false; this.requestMission(FREE[b.dataset.free]);
     }));
+    const mapRow = $('#mapPick');
+    mapRow.innerHTML = Object.entries(MAPS).map(([k, m]) => `<button class="mapchip" data-map="${k}"><b>${m.name}</b><small>${m.desc}</small></button>`).join('');
+    const markMap = () => mapRow.querySelectorAll('.mapchip').forEach((b) => b.classList.toggle('on', b.dataset.map === this.mapChoice));
+    mapRow.querySelectorAll('.mapchip').forEach((b) => b.onclick = () => { this.mapChoice = b.dataset.map; store('map', this.mapChoice); markMap(); audio.init(); audio.play('ui'); if (this.net && this.net.isHost) this.net.setMission(this.net.missionKey); });
+    markMap();
     $('#qualityBtn').onclick = () => {
       const keys = Object.keys(QUALITY);
       this.qualityKey = keys[(keys.indexOf(this.qualityKey) + 1) % keys.length];
@@ -631,8 +672,11 @@ class Game {
   }
 
   // ---------- missions ----------
-  startMission(m) {
+  startMission(m, mapId) {
     this.mission = m;
+    // campaign missions are built for Ostoja; free play (and online) uses the chosen map
+    const want = mapId || (m.free ? this.mapChoice : 'forest');
+    if (want !== this.world.map) { this.clearActors(); this.loadMap(want); }
     this.showScreen(null);
     this.clearActors();
     if (this.world.dirtyFlag) { this.world.reset(); this.world.dirtyFlag = false; }
@@ -649,7 +693,7 @@ class Game {
       this.soldier.m.root.visible = false;
       this.titanPlayer.setType(this.titanType || RANDOM_TITAN);
       this.player = this.titanPlayer;
-      this.titanPlayer.spawn(GATE_CX, D - 40, Math.PI);
+      this.titanPlayer.spawn(this.world.map === 'canyon' ? this.world.valleyX(D - 40) : GATE_CX, D - 40, Math.PI);
       this.camYaw = 0; this.camPitch = -0.1;
       this.world.dirtyFlag = true;
     } else {
@@ -684,8 +728,8 @@ class Game {
   spawnTitan(cfg, menu = false) {
     let x, z;
     for (let a = 0; a < 15; a++) {
-      x = rand(12, W - 12);
-      z = cfg.far ? rand(WALLZ + 70, D - 8) : rand(WALLZ + 25, D - 8);
+      const p = this.world.randomOutside(Math.random, cfg.far ? WALLZ + 70 : WALLZ + 25);
+      x = p.x; z = p.z;
       if (!this.player || Math.hypot(x - this.player.pos.x, z - this.player.pos.z) > 45) break;
     }
     const height = cfg.h[0] + (cfg.h[1] - cfg.h[0]) * Math.pow(Math.random(), 0.8);
@@ -1003,6 +1047,10 @@ class Game {
       this.fxKill(at);
       this.kills++;
       if (m.by !== this.selfId) this.hud.feed(`${this.net.name(m.by)}: ${m.ab ? 'ODMIENIEC' : 'TYTAN'} ${m.h} m`);
+    } else if (m.e === 'crush') {
+      const out = [];
+      if (this.world.destroySphere(at.x, at.y, at.z, m.r, out, { skip: HARD_BLOCKS })) { this.world.dirtyFlag = true; this.particles.debris(out, BLOCK_COLORS); }
+      return;
     } else if (m.e === 'cut') {
       if (t) t.cutFx(m.part, at);
       if (m.by !== this.selfId) this.hud.feed(`${this.net.name(m.by)}: ${m.label}`);

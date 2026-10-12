@@ -86,14 +86,15 @@ export class NetSession {
   }
 
   // ---------- authority-side lobby ----------
-  lobbyMsg() { return { t: T.LOBBY, players: this.list(), mission: this.missionKey, phase: this.phase }; }
+  lobbyMsg() { return { t: T.LOBBY, players: this.list(), mission: this.missionKey, map: this.game.mapChoice, phase: this.phase }; }
+  mapFor(key) { return key === 'free-s' ? this.game.mapChoice : 'forest'; }
   setMission(key) { this.missionKey = key; this.broadcast(this.lobbyMsg()); this.game.onLobby(); }
   start(key) {
     this.missionKey = key;
     this.phase = 'game';
     for (const p of this.players.values()) { p.score = 0; p.kills = 0; }
-    this.broadcast({ t: T.START, mission: key });
-    this.game.onNetStart(key);
+    this.broadcast({ t: T.START, mission: key, map: this.mapFor(key) });
+    this.game.onNetStart(key, this.mapFor(key));
   }
   toLobby() {
     this.phase = 'lobby';
@@ -120,7 +121,8 @@ export class NetSession {
         this.missionKey = m.mission;
         this.syncPlayers(m.players);
         if (this.welcomed) { this.welcomed.resolve(m); this.welcomed = null; }
-        if (m.phase === 'game') g.onNetStart(m.mission);
+        g.lobbyMap = m.lobbyMap;
+        if (m.phase === 'game') g.onNetStart(m.mission, m.map);
         else g.onLobby();
         return;
       case T.REJECT:
@@ -129,10 +131,11 @@ export class NetSession {
       case T.LOBBY:
         this.syncPlayers(m.players);
         this.missionKey = m.mission;
+        g.lobbyMap = m.map;
         if (m.phase === 'lobby' && this.phase !== 'lobby') { this.phase = 'lobby'; }
         g.onLobby();
         return;
-      case T.START: this.phase = 'game'; this.missionKey = m.mission; g.onNetStart(m.mission); return;
+      case T.START: this.phase = 'game'; this.missionKey = m.mission; g.onNetStart(m.mission, m.map); return;
       case T.PSS: {
         const t = now();
         for (const [id, s] of m.list) { if (id === this.selfId) continue; const p = this.players.get(id); if (p && p.remote) p.remote.push(unpackPlayer(s), t); }
@@ -157,7 +160,7 @@ export class NetSession {
     const taken = new Set([...this.players.values()].map((p) => p.name));
     for (let i = 2; taken.has(name); i++) name = cleanName(m.name).slice(0, 13) + ' ' + i;
     this.addPlayer(from, name);
-    this.tr.send(from, { t: T.WELCOME, id: from, players: this.list(), phase: this.phase, mission: this.missionKey });
+    this.tr.send(from, { t: T.WELCOME, id: from, players: this.list(), phase: this.phase, mission: this.missionKey, map: this.game.world.map, lobbyMap: this.game.mapChoice });
     this.broadcast(this.lobbyMsg());
     this.game.onLobby();
     this.game.onChat(null, `${name} dołącza do gry`);

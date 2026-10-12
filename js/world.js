@@ -34,9 +34,18 @@ const FACES = [
 ];
 const AO = [0.42, 0.62, 0.8, 1.0];
 
+// Playable maps. Every map keeps the wall + gate + inner district; the land beyond the wall changes.
+export const MAPS = {
+  forest: { name: 'Ostoja', desc: 'Las olbrzymich drzew i ruiny wież za murem.' },
+  city: { name: 'Stare Miasto', desc: 'Gęsta, wysoka zabudowa za murem. Tytany burzą domy, przez które idą.', crush: true },
+  canyon: { name: 'Wąwóz', desc: 'Kręta dolina między skalnymi ścianami, z łukami i mostami nad głową.' },
+};
+
 export class World {
-  constructor(seed = 1337) {
+  constructor(seed = 1337, map = 'forest') {
     this.seed = seed;
+    this.map = MAPS[map] ? map : 'forest';
+    this.def = MAPS[this.map];
     this.blocks = new Uint8Array(W * H * D);
     this.heightMap = new Int16Array(W * D); // stand height of natural terrain (protected below)
     this.supplies = [];
@@ -87,18 +96,28 @@ export class World {
     const S = this.seed;
     for (let z = 0; z < D; z++) for (let x = 0; x < W; x++) {
       let h = GROUND;
-      if (z >= WALLZ + 3) {
+      if (z >= WALLZ + 3 && this.map === 'forest') {
         const n = fbm(x / 38, z / 38, S, 4);
         const t = clamp((z - (WALLZ + 3)) / 16, 0, 1);
         h = Math.round(lerp(GROUND, GROUND + (n - 0.45) * 14, t));
         if (Math.abs(x - (GATE_X0 + GATE_X1) / 2) < 10 && z < WALLZ + 24) h = GROUND;
         h = clamp(h, 6, 18);
+      } else if (z >= WALLZ + 3 && this.map === 'canyon') {
+        // a winding valley floor between steep rock walls
+        const cx = this.valleyX(z), hw = this.valleyHalf(z);
+        const out = Math.abs(x - cx) - hw;
+        const t = clamp((z - (WALLZ + 6)) / 18, 0, 1);
+        const cliff = out > 0 ? Math.min(52, out * 2.4 + fbm(x / 9, z / 9, S, 3) * 10) : fbm(x / 20, z / 20, S + 3, 2) * 2;
+        h = clamp(Math.round(GROUND + cliff * t), 8, H - 12);
       }
       this.setRaw(x, 0, z, B.BEDROCK);
       for (let y = 1; y <= h; y++) {
         let id = B.STONE;
-        if (y > h - 4) id = B.DIRT;
-        if (y === h) id = B.GRASS;
+        const rocky = this.map === 'canyon' && h > GROUND + 6;
+        if (y > h - 4 && !rocky) id = B.DIRT;
+        if (y === h) id = rocky ? (h > GROUND + 30 ? B.GRASS : B.STONE) : B.GRASS;
+        if (rocky && y < h && (y % 7 === 0) && hash2(x, z + y, S) < 0.5) id = B.DARK; // strata
+        if (this.map === 'city' && z >= WALLZ + 3 && y === h) id = B.PATH;
         this.setRaw(x, y, z, id);
       }
       this.heightMap[x + z * W] = h + 1;
@@ -116,17 +135,40 @@ export class World {
     this.buildWall();
 
     // supply stations
-    const supplySpots = [[44, WALLZ + 36], [150, WALLZ + 52], [96, D - 26], [GATE_X1 + 10, WALLZ - 10], [30, D - 20]];
-    for (const [sx, sz] of supplySpots) {
+    const supplySpots = this.map === 'canyon'
+      ? [[this.valleyX(WALLZ + 36), WALLZ + 36], [this.valleyX(WALLZ + 80), WALLZ + 80], [this.valleyX(D - 26), D - 26], [GATE_X1 + 10, WALLZ - 10]]
+      : [[44, WALLZ + 36], [150, WALLZ + 52], [96, D - 26], [GATE_X1 + 10, WALLZ - 10], [30, D - 20]];
+    for (const [sx0, sz] of supplySpots) {
+      const sx = Math.round(sx0);
       const g = this.heightMap[sx + sz * W];
       for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) this.setRaw(sx + dx, g - 1, sz + dz, B.PATH);
       for (let dx = 0; dx < 2; dx++) for (let dz = 0; dz < 2; dz++) this.setRaw(sx + dx, g, sz + dz, B.CRATE);
       this.setRaw(sx, g + 1, sz, B.CRATE);
       this.supplies.push({ x: sx + 1, y: g, z: sz + 1 });
     }
-
-    // forest: giant trees + ruined pillars + small trees
     const taken = supplySpots.map(([x, z]) => ({ x, z, r: 10 }));
+    if (this.map === 'forest') this.buildForest(rng, taken);
+    else if (this.map === 'city') this.buildOuterCity(rng, taken);
+    else this.buildCanyon(rng, taken);
+
+    this.buildDistrict(rng);
+    this.gateTotal = this.countGate();
+    this.pristine = this.blocks.slice();
+  }
+
+  valleyX(z) { return W / 2 + 8 + Math.sin(z * 0.035) * 26 + Math.sin(z * 0.011 + 1) * 10; }
+  valleyHalf(z) { return 19 + Math.sin(z * 0.07) * 4 + (z < WALLZ + 20 ? 20 : 0); }
+
+  // A random spot outside the wall where titans can stand (the valley floor on the canyon map).
+  randomOutside(rng = Math.random, minZ = WALLZ + 25) {
+    for (let a = 0; a < 40; a++) {
+      const x = 12 + Math.floor(rng() * (W - 24)), z = minZ + Math.floor(rng() * (D - 8 - minZ));
+      if (this.heightMap[x + z * W] <= GROUND + 4) return { x: x + 0.5, z: z + 0.5 };
+    }
+    return { x: this.valleyX(minZ + 20), z: minZ + 20 };
+  }
+
+  buildForest(rng, taken) {
     const free = (x, z, r) => taken.every((t) => Math.hypot(t.x - x, t.z - z) > t.r + r);
     for (let i = 0; i < 9; i++) {
       for (let a = 0; a < 60; a++) {
@@ -151,10 +193,88 @@ export class World {
       const x = 4 + Math.floor(rng() * (W - 8)), z = WALLZ + 6 + Math.floor(rng() * (D - WALLZ - 10));
       if (free(x, z, 3)) { this.smallTree(x, z, rng); taken.push({ x, z, r: 2 }); }
     }
+  }
 
-    this.buildDistrict(rng);
-    this.gateTotal = this.countGate();
-    this.pristine = this.blocks.slice();
+  // Outer town: a street grid of tall houses, towers, a cathedral and small parks.
+  buildOuterCity(rng, taken) {
+    const free = (x, z, r) => taken.every((t) => Math.hypot(t.x - x, t.z - z) > t.r + r);
+    const z0 = WALLZ + 22;
+    // main avenue from the gate and a cathedral on the central square
+    this.cathedral(GATE_X0 - 2, WALLZ + 92, rng);
+    taken.push({ x: GATE_X0 + 8, z: WALLZ + 100, r: 24 });
+    for (let lx = 4; lx < W - 14; lx += 15) for (let lz = z0; lz < D - 14; lz += 15) {
+      if (lx + 14 > GATE_X0 - 4 && lx < GATE_X1 + 5 && lz < WALLZ + 70) continue; // keep the gate avenue open
+      const x = lx + Math.floor(rng() * 2), z = lz + Math.floor(rng() * 2);
+      if (!free(x + 5, z + 5, 6)) continue;
+      const r = rng();
+      if (r < 0.1) { for (let k = 0; k < 3; k++) this.smallTree(x + 2 + Math.floor(rng() * 8), z + 2 + Math.floor(rng() * 8), rng); }
+      else if (r < 0.28) this.tower(x + 3, z + 3, rng, 26 + Math.floor(rng() * 14));
+      else this.house(x, z, 8 + Math.floor(rng() * 4), 7 + Math.floor(rng() * 4), 8 + Math.floor(rng() * 9));
+    }
+  }
+
+  cathedral(x0, z0, rng) {
+    const gy = GROUND + 1, w = 20, d = 30, h = 22;
+    for (let x = x0; x < x0 + w; x++) for (let z = z0; z < z0 + d; z++) {
+      this.setRaw(x, GROUND, z, B.PLANKS);
+      for (let y = gy; y < gy + h; y++) {
+        const edge = x === x0 || x === x0 + w - 1 || z === z0 || z === z0 + d - 1;
+        if (!edge) continue;
+        const win = (y - gy) % 7 > 2 && (y - gy) % 7 < 6 && (x + z) % 4 === 0;
+        if (z === z0 && Math.abs(x - (x0 + w / 2)) < 2 && y < gy + 6) continue; // door
+        if (!win) this.setRaw(x, y, z, B.STONE);
+      }
+    }
+    for (let i = 0; ; i++) {
+      const xa = x0 - 1 + i, xb = x0 + w - i;
+      if (xa > xb) break;
+      for (let z = z0 - 1; z <= z0 + d; z++) { this.setRaw(xa, gy + h + i, z, B.ROOF); this.setRaw(xb, gy + h + i, z, B.ROOF); }
+    }
+    // bell tower with a spire
+    const tx = x0 + w / 2 - 3, tz = z0 - 6;
+    for (let x = tx; x < tx + 7; x++) for (let z = tz; z < tz + 7; z++) for (let y = gy; y < gy + 40; y++) {
+      const edge = x === tx || x === tx + 6 || z === tz || z === tz + 6;
+      if (edge && !((y - gy) % 9 > 5 && (x === tx + 3 || z === tz + 3))) this.setRaw(x, y, z, B.STONE);
+    }
+    for (let i = 0; i < 8; i++) for (let x = tx - 1 + i; x <= tx + 7 - i; x++) for (let z = tz - 1 + i; z <= tz + 7 - i; z++) this.setRaw(x, gy + 40 + i * 2, z, B.ROOF), this.setRaw(x, gy + 41 + i * 2, z, B.ROOF);
+  }
+
+  // Canyon: rock spires and stone arches over the valley, plank bridges, pines on the rim.
+  buildCanyon(rng, taken) {
+    const S = this.seed;
+    for (const za of [WALLZ + 42, WALLZ + 86, WALLZ + 118]) {
+      const cx = this.valleyX(za), hw = this.valleyHalf(za) + 4, top = GROUND + 30 + Math.floor(rng() * 8);
+      for (let x = Math.floor(cx - hw - 3); x <= cx + hw + 3; x++) {
+        const k = (x - cx) / (hw + 3);
+        const yTop = top - Math.round(k * k * 7);
+        for (let z = za; z < za + 4; z++) for (let y = yTop - 3; y <= yTop; y++) this.setRaw(x, y, z, hash2(x, y + z, S) < 0.2 ? B.DARK : B.STONE);
+      }
+    }
+    for (const zb of [WALLZ + 62, WALLZ + 102]) {
+      const cx = this.valleyX(zb), hw = this.valleyHalf(zb) + 6, y = GROUND + 18;
+      for (let x = Math.floor(cx - hw); x <= cx + hw; x++) {
+        const sag = Math.round(Math.cos(((x - cx) / hw) * Math.PI / 2) * 2);
+        for (let z = zb; z < zb + 3; z++) this.setRaw(x, y - sag, z, B.PLANKS);
+        if ((x - Math.floor(cx - hw)) % 6 === 0) { this.setRaw(x, y - sag + 1, zb - 1, B.LOG); this.setRaw(x, y - sag + 1, zb + 3, B.LOG); }
+      }
+    }
+    for (let i = 0; i < 10; i++) {
+      const z = WALLZ + 24 + Math.floor(rng() * (D - WALLZ - 34));
+      const x = Math.round(this.valleyX(z) + (rng() - 0.5) * this.valleyHalf(z) * 1.2);
+      if (taken.some((t) => Math.hypot(t.x - x, t.z - z) < t.r + 6)) continue;
+      const h = 20 + Math.floor(rng() * 20), r = 1.6 + rng() * 1.6, g = this.heightMap[x + z * W];
+      for (let y = 0; y < h; y++) {
+        const rr = r * (1 - (y / h) * 0.55) + (hash2(x + y, z, S) - 0.5) * 0.8;
+        const R = Math.ceil(rr);
+        for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++) if (dx * dx + dz * dz <= rr * rr) this.setRaw(x + dx, g - 1 + y, z + dz, y % 6 === 0 ? B.DARK : B.STONE);
+      }
+      taken.push({ x, z, r: 5 });
+    }
+    for (let i = 0; i < 70; i++) {
+      const x = 4 + Math.floor(rng() * (W - 8)), z = WALLZ + 14 + Math.floor(rng() * (D - WALLZ - 18));
+      const hm = this.heightMap[x + z * W];
+      if (hm > GROUND + 20 || (hm <= GROUND + 2 && rng() < 0.15)) this.smallTree(x, z, rng);
+    }
   }
 
   reset() {
@@ -283,8 +403,8 @@ export class World {
     }
   }
 
-  tower(x0, z0, rng) {
-    const gy = GROUND + 1, h = 18 + Math.floor(rng() * 10);
+  tower(x0, z0, rng, height) {
+    const gy = GROUND + 1, h = height || 18 + Math.floor(rng() * 10);
     for (let x = x0; x < x0 + 5; x++) for (let z = z0; z < z0 + 5; z++)
       for (let y = gy; y < gy + h; y++) {
         const edge = x === x0 || x === x0 + 4 || z === z0 || z === z0 + 4;

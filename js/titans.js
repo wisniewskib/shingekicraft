@@ -60,7 +60,8 @@ export class Titan {
 
   pickWander() {
     if (this.ally) return new THREE.Vector3(rand(10, W - 10), 0, rand(10, D - 10));
-    return new THREE.Vector3(rand(10, W - 10), 0, rand(WALLZ + 12, D - 10));
+    const p = this.game.world.randomOutside(Math.random, WALLZ + 12);
+    return new THREE.Vector3(p.x, 0, p.z);
   }
   forward(out = new THREE.Vector3()) { return out.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)); }
   get down() { return this.downT > 0; }
@@ -242,7 +243,24 @@ export class Titan {
 
     // motion
     const fwd = this.forward();
+    const ox = this.pos.x, oz = this.pos.z;
     this.pos.addScaledVector(fwd, moveSpeed * dt);
+    // titans can't scale cliffs: turn back at steep ground
+    if (g.world.groundY(this.pos.x, this.pos.z) - g.world.groundY(ox, oz) > 2.5) {
+      this.pos.x = ox; this.pos.z = oz;
+      this.wander = this.pickWander();
+      this.yaw += 0.6;
+    }
+    // on maps with buildings in the way, titans wreck what they walk through
+    if (g.world.def.crush && moveSpeed > 0.3) {
+      this.crushT = (this.crushT || 0) - dt;
+      if (this.crushT <= 0) {
+        this.crushT = 0.3;
+        const c = this.pos.clone().addScaledVector(fwd, this.radius + 0.8);
+        g.crush(c.setY(this.pos.y + this.height * 0.3), Math.min(5, this.height * 0.2));
+        if (this.height > 9) g.crush(c.setY(this.pos.y + this.height * 0.65), Math.min(5, this.height * 0.2));
+      }
+    }
     if (this.jumpV || this.jumpY > 0) {
       this.jumpY += this.jumpV * dt; this.jumpV -= 24 * dt;
       this.pos.addScaledVector(fwd, 10 * dt);

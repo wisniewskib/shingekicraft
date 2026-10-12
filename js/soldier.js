@@ -273,9 +273,9 @@ export class Soldier {
       if (dist < 0.01) continue;
       const n = to.divideScalar(dist);
       // the winch: always a light pull, Shift winds in hard
-      const reel = this.gas > 0 ? 3 + 23 * reelK : 0;
+      const reel = this.gas > 0 ? 6 + 26 * reelK : 0;
       h.len = Math.max(ANCHOR_STOP, Math.min(h.len, dist) - reel * dt);
-      if (this.gas > 0) v.addScaledVector(n, (2.5 + 35.5 * reelK) * dt);
+      if (this.gas > 0) v.addScaledVector(n, (6.5 + 38.5 * reelK) * dt);
       // gear brake: arrive at the anchor instead of splatting into it
       const vr = v.dot(n), room = Math.max(0, dist - ANCHOR_STOP);
       const vmax = Math.sqrt(2 * 55 * room) + 3;

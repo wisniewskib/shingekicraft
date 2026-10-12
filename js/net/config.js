@@ -2,7 +2,7 @@
 // (e.g. Twilio Network Traversal) without touching game code.
 
 export const NET = {
-  protocol: 1,
+  protocol: 2,
   peerPrefix: 'shingekicraft-v1-',
   maxPlayers: 8,
   stateHz: 20,        // own player state, client -> authority

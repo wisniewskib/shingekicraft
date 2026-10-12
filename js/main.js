@@ -1105,6 +1105,16 @@ class Game {
     this.hud.feed(label);
     audio.play('cut', 0.5);
   }
+  damageScout(s, dmg, label) {
+    if (s.dead) return;
+    s.hp -= dmg;
+    if (s.hp <= 0) { this.killScout(s, label); return; }
+    s.stun(1.4, false);
+    s.vel.set(rand(-8, 8), 9, rand(-8, 8));
+    this.particles.blood(s.pos.x, s.pos.y + 1, s.pos.z, 8, 5);
+    this.addScore(80, s.pos.clone().setY(s.pos.y + 1));
+    audio.play('cut', 0.3);
+  }
   killScoutsNear(p, r, label) {
     for (const s of this.scouts) if (!s.dead && s.pos.distanceTo(p) < r) this.killScout(s, label);
   }

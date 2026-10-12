@@ -17,12 +17,12 @@ const ropeGeo = new THREE.BoxGeometry(1, 1, 1);
 const ropeMat = new THREE.MeshBasicMaterial({ color: 0x2a2a2a });
 const headMat = new THREE.MeshLambertMaterial({ color: 0x9aa4ae });
 const UP = new THREE.Vector3(0, 1, 0);
+const DOWN = new THREE.Vector3(0, -1, 0);
 
 export class Soldier {
   constructor(game) {
     this.game = game;
     this.m = buildSoldier();
-    this.m.root.rotation.order = 'YXZ';
     game.scene.add(this.m.root);
     this.pos = new THREE.Vector3();
     this.vel = new THREE.Vector3();
@@ -46,7 +46,8 @@ export class Soldier {
     this.vel.set(0, 0, 0);
     this.ground = false; this.slashT = 0; this.slashDur = 0.28; this.slashCd = 0; this.invuln = 0;
     this.lastDamage = -99; this.boosting = false; this.braking = false; this.dead = false;
-    this.spin = []; this.facing = 0; this.pitch = 0;
+    this.spin = []; this.facing = 0;
+    this.bodyQ = new THREE.Quaternion();
     this.spinT = 0; this.spinCd = 0; this.spinAngle = 0; this.spinTick = 0; this.plunge = false;
     this.combo = 0; this.lastSlash = -9; this.finisher = false;
     this.eHeld = 0; this.charged = false; this.lungeT = 0; this.lungeTick = 0;
@@ -224,6 +225,14 @@ export class Soldier {
       if (this.ground && input.pressed('Space')) v.y = Math.max(v.y, JUMP);
       if (input.held('Space') && this.gas > 0) {
         const dir = g.camDir.clone();
+        if (hooked.length) {
+          // on a wire the gas pushes across the cable: it speeds up the swing, Shift is what reels you in
+          const n = new THREE.Vector3();
+          for (const h of hooked) n.add(h.anchor.clone().sub(this.chest).normalize());
+          n.normalize();
+          const across = dir.clone().addScaledVector(n, -dir.dot(n));
+          if (across.lengthSq() > 0.05) dir.copy(across.normalize());
+        }
         // gas pushes hard from low speed but fades out towards ~30 m/s along the boost direction
         const along = v.dot(dir);
         const k = along < 14 ? 1.4 : along > 30 ? 0.15 : 1.4 - ((along - 14) / 16) * 1.25;
@@ -279,7 +288,7 @@ export class Soldier {
       }
     }
     if (hooked.length) this.gas = Math.max(0, this.gas - (0.35 + 3.15 * reelK) * dt);
-    if (reelK) this.boosting = true;
+    this.reeling = reelK > 0;
     // air drag grows with speed
     const spd = v.length();
     if (!this.ground) v.multiplyScalar(1 - Math.min(0.5, (0.015 + spd * 0.0011) * dt));
@@ -360,19 +369,42 @@ export class Soldier {
     else if (hs > 1.5) this.facing += angleDiff(this.facing, Math.atan2(v.x, v.z)) * Math.min(1, 12 * dt);
     else this.facing += angleDiff(this.facing, yaw + Math.PI) * Math.min(1, 6 * dt);
 
-    // fast flight = "Superman": body lies along the velocity, head first
+    // Body orientation, built from an "up" (head) and a "front" (chest) direction:
+    //   on a wire  -> head towards the anchor, chest along the swing (you hang from the cable)
+    //   fast flight-> head along the velocity, chest to the ground ("Superman")
+    //   otherwise  -> upright, facing where you move
     const sp = v.length();
     const fly = !this.ground ? clamp((sp - 10) / 14, 0, 1) : 0;
-    const elev = sp > 0.1 ? Math.asin(clamp(v.y / sp, -1, 1)) : 0;
-    let pitchTarget = (Math.PI / 2 - elev) * fly * (this.slashT > 0 ? 0.5 : 1);
-    if (this.spinT > 0) pitchTarget *= 0.6;
-    this.pitch = damp(this.pitch, pitchTarget, 8, dt);
+    const flat = new THREE.Vector3(Math.sin(this.facing), 0, Math.cos(this.facing));
+    const U = UP.clone(), F = flat.clone();
+    if (!this.ground && hooked.length && !this.attacking) {
+      const anchor = new THREE.Vector3();
+      for (const h of hooked) anchor.add(h.anchor);
+      const toA = anchor.divideScalar(hooked.length).sub(this.chest).normalize();
+      U.lerp(toA, 0.75).normalize();
+      const tang = v.clone().addScaledVector(toA, -v.dot(toA));
+      if (tang.lengthSq() > 4) F.copy(tang.normalize());
+    } else if (fly > 0) {
+      const k = fly * (this.slashT > 0 ? 0.5 : 1) * (this.spinT > 0 ? 0.6 : 1);
+      U.lerp(v.clone().normalize(), k).normalize();
+      F.lerp(DOWN, k).normalize();
+    }
+    let Z = F.clone().addScaledVector(U, -F.dot(U));
+    if (Z.lengthSq() < 1e-3) Z = flat.clone().addScaledVector(U, -flat.dot(U));
+    if (Z.lengthSq() < 1e-3) Z = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw)).addScaledVector(U, -0.0);
+    Z.normalize();
+    const X = new THREE.Vector3().crossVectors(U, Z).normalize();
+    Z.crossVectors(X, U);
+    const target = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(X, U, Z));
+    this.bodyQ.slerp(target, 1 - Math.exp(-10 * dt));
     let whirl = 0;
     if (this.finisher && this.slashT > 0) whirl = (1 - this.slashT / this.slashDur) * Math.PI * 2 * -this.slashDir;
-    this.m.root.rotation.set(this.pitch, this.facing + this.spinAngle + whirl, 0);
+    // spins happen around the body's own long axis
+    const spinQ = new THREE.Quaternion().setFromAxisAngle(UP, this.spinAngle + whirl);
+    this.m.root.quaternion.copy(this.bodyQ).multiply(spinQ);
     // rotate around the hips, not the feet
     const pivot = new THREE.Vector3(0, 0.9, 0);
-    this.m.root.position.copy(this.pos).add(pivot).sub(pivot.clone().applyEuler(this.m.root.rotation));
+    this.m.root.position.copy(this.pos).add(pivot).sub(pivot.clone().applyQuaternion(this.m.root.quaternion));
 
     const a = this.anim;
     a.air = !this.ground; a.speed = sp; a.run = this.ground ? clamp(hs / RUN, 0, 1) : 0;
@@ -390,7 +422,8 @@ export class Soldier {
     this.spinRing.visible = this.spinT > 0 || (this.finisher && this.slashT > 0);
     if (this.spinRing.visible) {
       this.spinRing.position.copy(this.chest);
-      this.spinRing.rotation.set(-Math.PI / 2 + this.pitch * 0.5, 0, this.spinAngle + whirl);
+      const ringQ = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0).applyQuaternion(this.bodyQ));
+      this.spinRing.quaternion.copy(ringQ).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), this.spinAngle + whirl));
       this.spinRing.material.opacity = 0.3 + 0.2 * Math.sin(g.time * 40);
     }
     if (this.invuln > 0) this.m.root.visible = Math.floor(g.time * 20) % 2 === 0; else this.m.root.visible = true;
@@ -408,7 +441,7 @@ export class Soldier {
     }
 
     // gas effects
-    audio.setGas(this.boosting || this.braking ? 1 : 0);
+    audio.setGas(this.boosting || this.braking ? 1 : this.reeling ? 0.45 : 0);
     audio.setWind(sp);
     if ((this.boosting || this.braking) && Math.random() < 0.8) {
       const dirN = v.clone().normalize();

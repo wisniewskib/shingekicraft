@@ -37,22 +37,22 @@ export const TITAN_TYPES = [
   },
   {
     id: 'colossal', name: 'Kolos', h: 40, speed: 3, run: 4.5, armor: 0,
-    desc: 'Czterdzieści metrów mięśni. Jego para parzy wszystko, co podleci.',
+    desc: 'Czterdzieści metrów mięśni. Para parzy wszystko wokół, ale wypala też jego ciało: chudnie i traci siły.',
     look: { skin: '#b0473a', hair: null, muscle: true, face: 'teeth', eye: '#f6f0e0' },
     lmb: 'Zamiatanie',
     abilities: {
-      Q: { type: 'steam', name: 'Wybuch pary', cd: 14, dur: 6, r: 26 },
+      Q: { type: 'steam', name: 'Wybuch pary', cd: 14, dur: 6, r: 26, burn: 2.4 },
       E: { type: 'stomp', name: 'Trzęsienie', cd: 9, r: 24 },
       F: { type: 'kick', name: 'Kopniak w mur', cd: 16, r: 2.2, breakWall: true },
     },
   },
   {
     id: 'beast', name: 'Bestia', h: 17, speed: 5, run: 8, armor: 0,
-    desc: 'Długie ręce i mocny rzut. Ciska głazami i przywołuje tytany.',
+    desc: 'Długie ręce i mocny rzut. Ciska wielkim głazem, który rozpryskuje się na odłamki.',
     look: { skin: '#6b5240', hair: '#4a3626', fur: true, longArms: true, face: 'stern', eye: '#e0c060', hunch: 0.25 },
     lmb: 'Plaśnięcie',
     abilities: {
-      Q: { type: 'throw', name: 'Rzut głazami', cd: 3, n: 5 },
+      Q: { type: 'throw', name: 'Głaz z odłamkami', cd: 4, n: 9 },
       E: { type: 'scream', name: 'Ryk', cd: 16, r: 30 },
       F: { type: 'summon', name: 'Przywołanie', cd: 30, n: 2 },
     },
@@ -70,9 +70,9 @@ export const TITAN_TYPES = [
   },
   {
     id: 'jaw', name: 'Kieł', h: 5, speed: 11, run: 18, armor: 0.25,
-    desc: 'Mały i wściekły. Skacze jak wilk, utwardzone pazury tną wszystko.',
+    desc: 'Mały i wściekły. Tnie pazurami na boki, wspina się po murach i skacze jak wilk.',
     look: { skin: '#c09078', hair: '#e8e0c8', mask: true, face: 'mask', eye: '#ffe060', hunch: 0.45, claws: true },
-    lmb: 'Pazury',
+    lmb: 'Szybkie cięcia', claws: true, climb: true,
     abilities: {
       Q: { type: 'leap', name: 'Doskok', cd: 3 },
       E: { type: 'rage', name: 'Twarde pazury', cd: 14, dur: 6 },
@@ -81,13 +81,13 @@ export const TITAN_TYPES = [
   },
   {
     id: 'hammer', name: 'Kowal', h: 15, speed: 6, run: 10, armor: 0.15,
-    desc: 'Wykuwa broń i kolce z utwardzonego kryształu.',
+    desc: 'Wykuwa broń z kryształu: młot, który kruszy wszystko, albo kuszę do strzelania w zwiadowców.',
     look: { skin: '#e8d0c0', hair: '#f2f2f2', hairLong: true, thin: true, crystal: '#9fe8ff', face: 'stern', eye: '#9fe8ff' },
     lmb: 'Kryształowe ostrze',
     abilities: {
-      Q: { type: 'hammer', name: 'Uderzenie młotem', cd: 6 },
-      E: { type: 'spikes', name: 'Kryształowe kolce', cd: 12, r: 16 },
-      F: { type: 'harden', name: 'Kryształowa skorupa', cd: 18, dur: 6 },
+      Q: { type: 'weapon', weapon: 'hammer', name: 'Kryształowy młot', cd: 18, dur: 12 },
+      E: { type: 'weapon', weapon: 'crossbow', name: 'Kryształowa kusza', cd: 18, dur: 10 },
+      F: { type: 'spikes', name: 'Kryształowe kolce', cd: 12, r: 16 },
     },
   },
   {

@@ -30,21 +30,22 @@ const HOOK_NAMES = ['none', 'flying', 'attached', 'miss'];
 
 // ---------- player ----------
 export function packPlayer(s) {
-  const a = s.anim;
-  const flags = (a.air ? 1 : 0) | (a.spin ? 2 : 0) | (s.dead ? 4 : 0) | (s.charged ? 8 : 0) | (s.boosting ? 16 : 0) | (s.braking ? 32 : 0);
+  const a = s.anim, q = s.m.root.quaternion;
+  const flags = (a.air ? 1 : 0) | (a.spin ? 2 : 0) | (s.dead ? 4 : 0) | (s.charged ? 8 : 0) | (s.boosting ? 16 : 0) | (s.braking ? 32 : 0) | (s.reeling ? 64 : 0);
   const out = [r2(s.pos.x), r2(s.pos.y), r2(s.pos.z), r2(s.vel.x), r2(s.vel.y), r2(s.vel.z),
-    r3(s.facing), r3(s.pitch), r3(s.m.root.rotation.y - s.facing), flags, r2(a.run), r2(a.fly || 0), r2(a.slash), a.slashDir || 1,
+    r3(s.facing), r3(q.x), r3(q.y), r3(q.z), r3(q.w), flags, r2(a.run), r2(a.fly || 0), r2(a.slash), a.slashDir || 1,
     r2(s.auraK), Math.round(s.hp), s.grabbedBy ? s.grabbedBy.id : 0];
   for (const h of s.hooks) out.push(HOOK[h.state] ?? 0, r2(h.tip.x), r2(h.tip.y), r2(h.tip.z));
   return out;
 }
 
 export function unpackPlayer(p) {
+  const f = p[11];
   return {
-    pos: [p[0], p[1], p[2]], vel: [p[3], p[4], p[5]], facing: p[6], pitch: p[7], spinYaw: p[8],
-    air: !!(p[9] & 1), spin: !!(p[9] & 2), dead: !!(p[9] & 4), charged: !!(p[9] & 8), boost: !!(p[9] & 16), brake: !!(p[9] & 32),
-    run: p[10], fly: p[11], slash: p[12], slashDir: p[13], aura: p[14], hp: p[15], grabbed: p[16],
-    hooks: [[HOOK_NAMES[p[17]], p[18], p[19], p[20]], [HOOK_NAMES[p[21]], p[22], p[23], p[24]]],
+    pos: [p[0], p[1], p[2]], vel: [p[3], p[4], p[5]], facing: p[6], quat: [p[7], p[8], p[9], p[10]],
+    air: !!(f & 1), spin: !!(f & 2), dead: !!(f & 4), charged: !!(f & 8), boost: !!(f & 16), brake: !!(f & 32), reel: !!(f & 64),
+    run: p[12], fly: p[13], slash: p[14], slashDir: p[15], aura: p[16], hp: p[17], grabbed: p[18],
+    hooks: [[HOOK_NAMES[p[19]], p[20], p[21], p[22]], [HOOK_NAMES[p[23]], p[24], p[25], p[26]]],
   };
 }
 

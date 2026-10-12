@@ -8,6 +8,7 @@ const CAPES = [0x2f6b3a, 0x3a4f7a, 0x7a2f2f, 0x6a4a8a, 0x2f6b6b, 0x8a6a2a, 0x4a4
 const ropeGeo = new THREE.BoxGeometry(1, 1, 1);
 const ropeMat = new THREE.MeshBasicMaterial({ color: 0x2a2a2a });
 const HIP = new THREE.Vector3();
+const QA = new THREE.Quaternion(), QB = new THREE.Quaternion();
 
 function nameTag(text, color) {
   const c = document.createElement('canvas');
@@ -32,7 +33,6 @@ export class RemoteSoldier {
     const cape = CAPES[index % CAPES.length];
     this.capeCss = '#' + cape.toString(16).padStart(6, '0');
     this.m = buildSoldier({ cape });
-    this.m.root.rotation.order = 'YXZ';
     game.scene.add(this.m.root);
     this.tag = nameTag(name, this.capeCss);
     game.scene.add(this.tag);
@@ -70,13 +70,12 @@ export class RemoteSoldier {
     if (rt > b.t) { const e = Math.min(0.15, rt - b.t); this.pos.x += s.vel[0] * e; this.pos.y += s.vel[1] * e; this.pos.z += s.vel[2] * e; }
     this.vel.set(s.vel[0], s.vel[1], s.vel[2]);
     const facing = sa.facing + angleDiff(sa.facing, s.facing) * k;
-    const pitch = sa.pitch + (s.pitch - sa.pitch) * k;
-
     const r = this.m.root;
     r.visible = !s.dead && !s.grabbed;
-    r.rotation.set(pitch, facing + s.spinYaw, 0);
+    QA.set(...sa.quat); QB.set(...s.quat);
+    r.quaternion.copy(QA).slerp(QB, k);
     const pivot = new THREE.Vector3(0, 0.9, 0);
-    r.position.copy(this.pos).add(pivot).sub(pivot.clone().applyEuler(r.rotation));
+    r.position.copy(this.pos).add(pivot).sub(pivot.clone().applyQuaternion(r.quaternion));
     const an = this.anim;
     an.air = s.air; an.run = s.run; an.fly = s.fly; an.slash = s.slash; an.slashDir = s.slashDir; an.spin = s.spin;
     an.boost = s.boost ? 1 : 0; an.speed = this.vel.length();
@@ -102,7 +101,7 @@ export class RemoteSoldier {
       rope.scale.set(0.035, 0.035, len);
       rope.lookAt(tip);
     }
-    if ((s.boost || s.brake) && Math.random() < 0.6) {
+    if ((s.boost || s.brake || s.reel) && Math.random() < 0.6) {
       this.game.particles.puff(this.pos.x, this.pos.y + 0.8, this.pos.z, -this.vel.x * 0.1, -this.vel.y * 0.1, -this.vel.z * 0.1, 0.9, 0.6, 0xffffff, 0.5, 2.5);
     }
   }

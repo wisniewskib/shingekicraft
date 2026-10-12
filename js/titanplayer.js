@@ -33,7 +33,7 @@ export class PlayerTitan {
   setType(type) {
     if (this.m) this.game.scene.remove(this.m.root);
     this.type = type;
-    this.hammerMesh = null;
+    this.hammerMesh = null; this.bowMesh = null;
     let h = type.h, look = type.look || {};
     if (type.random) h = Math.round(rand(7, 15));
     this.height = h;
@@ -55,6 +55,10 @@ export class PlayerTitan {
     this.chargeT = 0; this.chargeDef = null; this.dashT = 0;
     this.hardenT = 0; this.rageT = 0; this.steamT = 0; this.steamDef = null; this.cannonT = 0; this.cannonFire = 0; this.steamTick = 0;
     this.vy = 0; this.air = false; this.leaping = false; this.vel.set(0, 0, 0);
+    this.weapon = null; this.weaponT = 0; this.thin = 0; this.climbing = false;
+    if (this.hammerMesh) this.hammerMesh.visible = false;
+    if (this.bowMesh) this.bowMesh.visible = false;
+    if (this.m) this.m.root.scale.set(1, 1, 1);
     this.crushT = 0; this.lastHurt = -99; this.yaw = Math.PI;
     for (const f of this.fx) this.game.scene.remove(f.mesh);
     for (const p of this.projectiles) this.game.scene.remove(p.mesh);
@@ -117,6 +121,15 @@ export class PlayerTitan {
     this.rageT = Math.max(0, this.rageT - dt);
     this.m.hardShell.visible = this.hardenT > 0;
     if (g.time - this.lastHurt > 5) this.nape = Math.min(100, this.nape + 2.5 * dt);
+    if (this.weapon) {
+      this.weaponT -= dt;
+      if (this.weaponT <= 0) { this.weapon = null; g.hud.toast('BROŃ SIĘ ROZSYPAŁA'); }
+    }
+    if (this.hammerMesh) this.hammerMesh.visible = this.weapon === 'hammer';
+    if (this.bowMesh) this.bowMesh.visible = this.weapon === 'crossbow';
+    // steam burns the colossus away: it gets thinner while steaming and fills out again slowly
+    this.thin = this.steamT > 0 ? Math.min(1, this.thin + dt * 0.14) : Math.max(0, this.thin - dt * 0.04);
+    if (this.thin > 0 || this.m.root.scale.x !== 1) this.m.root.scale.set(1 - 0.38 * this.thin, 1, 1 - 0.38 * this.thin);
 
     const yaw = g.camYaw;
     const f = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
@@ -129,13 +142,20 @@ export class PlayerTitan {
     if (this.steamT > 0) speed *= 0.5;
 
     // ---- inputs ----
-    const swipeDur = this.small ? 0.35 : 0.6;
-    if (input.pressed('Mouse0') && this.cd.lmb <= 0 && this.swipeT < 0) {
-      this.swipeT = 0; this.cd.lmb = this.small ? 0.45 : 0.8;
-      this.anim.attackArm = this.anim.attackArm === 'L' ? 'R' : 'L';
-      this.anim.attackAngle = 1.7;
-      this.yaw = Math.atan2(f.x, f.z);
-      audio.play('slash', 0.6);
+    const claws = !!this.type.claws;
+    const swipeDur = claws ? 0.22 : this.small ? 0.35 : 0.6;
+    if (input.pressed('Mouse0') && this.cd.lmb <= 0) {
+      if (this.weapon === 'hammer') {
+        if (this.hammerT < 0) { this.hammerT = 0; this.cd.lmb = 0.95; this.yaw = Math.atan2(f.x, f.z); audio.play('harden', 0.5); }
+      } else if (this.weapon === 'crossbow') {
+        this.fireBolt(); this.cd.lmb = 0.28; this.yaw = Math.atan2(f.x, f.z);
+      } else if (this.swipeT < 0) {
+        this.swipeT = 0; this.cd.lmb = claws ? 0.24 : this.small ? 0.45 : 0.8;
+        this.anim.attackArm = this.anim.attackArm === 'L' ? 'R' : 'L';
+        this.anim.attackAngle = claws ? 1.3 : 1.7;
+        this.yaw = Math.atan2(f.x, f.z);
+        audio.play('slash', claws ? 0.8 : 0.6);
+      }
     }
     if (input.pressed('Mouse2') && this.cd.rmb <= 0) { this.cd.rmb = 2; this.grabT = 0; this.anim.attackArm = 'R'; this.anim.attackAngle = 1.5; this.grab(); }
     if (input.pressed('Space') && !this.air) { this.vy = Math.min(22, 8 + this.height * 0.35); this.air = true; }
@@ -167,6 +187,7 @@ export class PlayerTitan {
     if (this.hammerT >= 0 || this.kickT >= 0 || this.throwT >= 0) speed *= 0.2;
 
     // ---- movement ----
+    if (this.type.climb) { this.moveClimber(dt, move, speed, input); } else {
     const hx = this.air && this.leaping ? this.vel.x : move.x * speed;
     const hz = this.air && this.leaping ? this.vel.z : move.z * speed;
     const nx = clamp(this.pos.x + hx * dt, 4, W - 4), nz = clamp(this.pos.z + hz * dt, 4, D - 4);
@@ -182,6 +203,7 @@ export class PlayerTitan {
         if (this.leaping) { this.leaping = false; this.stomp(Math.max(7, this.height * 1.3), true); }
       }
     } else this.pos.y = ground;
+    }
 
     // crush houses / trees by walking through them (big titans only)
     this.crushT -= dt;
@@ -219,12 +241,12 @@ export class PlayerTitan {
       this.hammerT += dt;
       this.anim.attackArm = 'R'; this.anim.attackAngle = 2.9;
       this.anim.attack = this.hammerT < 0.45 ? 0.5 * (this.hammerT / 0.45) : Math.min(1, 0.5 + (this.hammerT - 0.45) / 0.3 * 0.5);
-      this.hammerMesh.visible = true;
       if (this.hammerT >= 0.5 && this.hammerT - dt < 0.5) this.hammerSlam();
-      if (this.hammerT >= 0.85) { this.hammerT = -1; this.anim.attack = 0; this.hammerMesh.visible = false; }
+      if (this.hammerT >= 0.85) { this.hammerT = -1; this.anim.attack = 0; }
     }
     if (this.steamT > 0) {
       this.steamT -= dt; this.steamTick -= dt;
+      if (this.steamDef.burn) { this.nape = Math.max(8, this.nape - this.steamDef.burn * dt); this.lastHurt = g.time; }
       const c = this.pos.clone().setY(this.pos.y + this.height * 0.5);
       for (let i = 0; i < 3; i++) g.particles.steam(c.x + rand(-1, 1) * this.height * 0.3, this.pos.y + rand(0.1, 1) * this.height, c.z + rand(-1, 1) * this.height * 0.3, this.height * 0.4, 1);
       if (this.steamTick <= 0) {
@@ -247,7 +269,13 @@ export class PlayerTitan {
     animateTitan(this.m, a);
     if (this.chargeT > 0) { this.m.armL.rotation.x = -0.3; this.m.armR.rotation.x = -0.3; this.m.armR.rotation.z = -0.6; }
     if (this.kickT >= 0) { const k = Math.sin(Math.min(1, this.kickT / 0.5) * Math.PI); this.m.legR.rotation.x = -1.7 * k; this.m.body.rotation.x -= 0.3 * k; }
-    if (this.air) { this.m.legL.rotation.x = -0.6; this.m.legR.rotation.x = 0.3; }
+    if (this.air && !this.climbing) { this.m.legL.rotation.x = -0.6; this.m.legR.rotation.x = 0.3; }
+    if (this.climbing) {
+      const k = Math.sin(g.time * 10);
+      this.m.armL.rotation.set(-2.6 + k * 0.4, 0, 0.2); this.m.armR.rotation.set(-2.6 - k * 0.4, 0, -0.2);
+      this.m.legL.rotation.x = -0.8 - k * 0.3; this.m.legR.rotation.x = -0.8 + k * 0.3;
+    }
+    if (this.weapon === 'crossbow' && this.swipeT < 0) this.m.armR.rotation.set(-Math.PI / 2 - g.camPitch, 0, -0.1);
     this.m.root.updateMatrixWorld(true);
 
     const stepIdx = Math.floor(a.phase / Math.PI);
@@ -262,13 +290,16 @@ export class PlayerTitan {
   primaryHit() {
     const g = this.game;
     const aim = this.aimFlat();
-    const R = (this.height * 0.75 + 6) * (this.raging ? 1.4 : 1);
+    const claws = !!this.type.claws;
+    const R = (claws ? this.height * 0.9 + 6.5 : this.height * 0.75 + 6) * (this.raging ? 1.4 : 1);
+    const arc = claws ? -0.45 : 0.2; // claws sweep around to both sides
     for (const s of this.liveScouts()) {
       const d = s.pos.clone().sub(this.pos);
       const hd = Math.hypot(d.x, d.z);
       if (hd > R || d.y < -3 || d.y > this.height * 1.3 + 4) continue;
-      if ((d.x * aim.x + d.z * aim.z) / (hd || 1) > 0.2 || hd < this.radius + 2) g.killScout(s, 'ZBITY');
+      if ((d.x * aim.x + d.z * aim.z) / (hd || 1) > arc || hd < this.radius + 2) g.damageScout(s, claws ? 1 : 2, claws ? 'ROZORANY' : 'ZBITY');
     }
+    if (claws) this.clawFx(aim);
     this.napeSwat();
     if (!this.small || this.raging) {
       const hand = this.handWorld();
@@ -338,6 +369,12 @@ export class PlayerTitan {
         audio.play('harden');
         break;
       case 'spikes': this.spikes(a.r); break;
+      case 'weapon':
+        this.ensureWeapons();
+        this.weapon = a.weapon; this.weaponT = a.dur;
+        audio.play('harden'); g.hud.toast(a.name.toUpperCase());
+        for (let i = 0; i < 12; i++) { const h = this.handWorld(new THREE.Vector3(), 'R'); g.particles.puff(h.x, h.y, h.z, rand(-3, 3), rand(0, 3), rand(-3, 3), 1.5, 0.7, 0x9fe8ff, 0.7, 1.5); }
+        break;
     }
     this.cd[key] = a.cd;
   }
@@ -434,19 +471,122 @@ export class PlayerTitan {
     audio.play('crumble'); audio.play('clang'); g.shake(1);
   }
 
+  ensureWeapons() {
+    const px = this.m.px;
+    if (!this.hammerMesh) {
+      this.hammerMesh = new THREE.Group();
+      const handle = new THREE.Mesh(new THREE.BoxGeometry(1.2 * px, 1.2 * px, 14 * px), crystalMat);
+      handle.position.z = 6 * px;
+      const head = new THREE.Mesh(new THREE.BoxGeometry(7 * px, 6 * px, 6 * px), crystalMat);
+      head.position.z = 13 * px;
+      this.hammerMesh.add(handle, head);
+      this.hammerMesh.position.set(0, -(this.m.armR.userData.len + 1) * px, 0);
+      this.m.armR.add(this.hammerMesh);
+    }
+    if (!this.bowMesh) {
+      this.bowMesh = new THREE.Group();
+      const stock = new THREE.Mesh(new THREE.BoxGeometry(1.6 * px, 1.6 * px, 9 * px), crystalMat);
+      stock.position.z = 3 * px;
+      const limbs = new THREE.Mesh(new THREE.BoxGeometry(12 * px, 1 * px, 1.2 * px), crystalMat);
+      limbs.position.z = 7 * px;
+      this.bowMesh.add(stock, limbs);
+      this.bowMesh.position.set(0, -(this.m.armR.userData.len - 1) * px, 0);
+      this.m.armR.add(this.bowMesh);
+    }
+  }
+
+  // Crossbow: fast crystal bolts that pierce through several scouts.
+  fireBolt() {
+    const g = this.game;
+    const origin = this.handWorld(new THREE.Vector3(), 'R');
+    const c = g.camera.position, d = g.camDir;
+    const hit = g.world.raycast(c.x, c.y, c.z, d.x, d.y, d.z, 160);
+    const target = hit ? new THREE.Vector3(hit.px, hit.py, hit.pz) : c.clone().addScaledVector(d, 160);
+    const dir = target.sub(origin).normalize();
+    const mesh = new THREE.Mesh(rockGeo, crystalMat);
+    mesh.scale.set(0.35, 0.35, 2.4);
+    mesh.lookAt(mesh.position.clone().add(dir));
+    g.scene.add(mesh);
+    this.projectiles.push({ type: 'bolt', mesh, pos: origin.clone(), vel: dir.multiplyScalar(150), grav: 0, life: 1.2, r: 2.6, hit: new Set() });
+    audio.play('clang', 0.5); audio.play('hook', 0.5);
+  }
+
+  clawFx(aim) {
+    const g = this.game, side = this.anim.attackArm === 'L' ? 1 : -1;
+    const c = this.pos.clone().setY(this.pos.y + this.height * 0.55);
+    for (let i = 0; i < 9; i++) {
+      const a = Math.atan2(aim.x, aim.z) + side * (-1.6 + i * 0.4);
+      const r = this.height * 0.9 + 2;
+      g.particles.puff(c.x + Math.sin(a) * r, c.y + (i - 4) * 0.25, c.z + Math.cos(a) * r, 0, 0, 0, 1.2, 0.18, 0xffffff, 0.85, 0.3);
+    }
+  }
+
+  // Small climbers move with real block collision: they stand on roofs and walls and scale vertical faces.
+  moveClimber(dt, move, speed, input) {
+    const g = this.game, w = g.world;
+    const r = this.radius + 0.3, top = this.height * 0.85;
+    const hits = (x, y, z) => {
+      for (let a = 0; a < 8; a++) {
+        const sx = x + Math.cos(a * Math.PI / 4) * r, sz = z + Math.sin(a * Math.PI / 4) * r;
+        for (let yy = y + 0.6; yy < y + top; yy += 1) if (w.solid(sx, yy, sz)) return true;
+      }
+      return false;
+    };
+    const standY = (x, z, y) => {
+      let best = 0;
+      for (let a = 0; a < 5; a++) {
+        const sx = a === 4 ? x : x + Math.cos(a * Math.PI / 2) * r * 0.7, sz = a === 4 ? z : z + Math.sin(a * Math.PI / 2) * r * 0.7;
+        for (let yy = Math.floor(y + 0.9); yy >= 0; yy--) if (w.get(Math.floor(sx), yy, Math.floor(sz))) { best = Math.max(best, yy + 1); break; }
+      }
+      return best;
+    };
+    const lx = this.air && this.leaping ? this.vel.x : move.x * speed;
+    const lz = this.air && this.leaping ? this.vel.z : move.z * speed;
+    const nx = clamp(this.pos.x + lx * dt, 4, W - 4), nz = clamp(this.pos.z + lz * dt, 4, D - 4);
+    let blocked = false;
+    if (!hits(nx, this.pos.y, this.pos.z)) this.pos.x = nx; else blocked = true;
+    if (!hits(this.pos.x, this.pos.y, nz)) this.pos.z = nz; else blocked = true;
+    // push into a wall while moving = climb it
+    this.climbing = blocked && move.lengthSq() > 0.1 && speed > 0.5;
+    if (this.climbing) {
+      this.vy = 0; this.air = false; this.leaping = false;
+      this.pos.y += 9 * dt;
+      if (Math.random() < 0.3) g.particles.puff(this.pos.x, this.pos.y + 1, this.pos.z, 0, -1, 0, 1, 0.5, 0xb8b0a0, 0.4, 2);
+      return;
+    }
+    const floor = standY(this.pos.x, this.pos.z, this.pos.y);
+    if (this.air || this.pos.y > floor + 0.05) {
+      this.air = true;
+      this.vy -= 30 * dt;
+      this.pos.y += this.vy * dt;
+      if (this.pos.y <= floor) {
+        this.pos.y = floor; this.air = false; this.vy = 0;
+        audio.play('step', 0.6);
+        if (this.leaping) { this.leaping = false; this.stomp(Math.max(7, this.height * 1.3), true); }
+      }
+    } else this.pos.y = floor;
+  }
+
   releaseRocks() {
     const g = this.game;
     const hand = this.handWorld(new THREE.Vector3(), 'R');
+    const aim = g.camDir.clone();
+    // one big boulder...
+    const big = new THREE.Mesh(rockGeo, rockMat);
+    big.scale.setScalar(3.4);
+    big.position.copy(hand);
+    g.scene.add(big);
+    this.projectiles.push({ type: 'boulder', mesh: big, pos: hand.clone(), vel: aim.clone().multiplyScalar(58).addScaledVector(UP, 5), grav: 16, life: 4, r: 3.4 });
+    // ...and a spray of smaller shards that hurt less
     for (let i = 0; i < this.throwN; i++) {
-      const dir = g.camDir.clone().add(new THREE.Vector3(rand(-0.07, 0.07), rand(-0.03, 0.06), rand(-0.07, 0.07))).normalize();
-      const size = rand(1.2, 2.2);
+      const dir = aim.clone().add(new THREE.Vector3(rand(-0.16, 0.16), rand(-0.05, 0.12), rand(-0.16, 0.16))).normalize();
       const mesh = new THREE.Mesh(rockGeo, rockMat);
-      mesh.scale.setScalar(size);
+      mesh.scale.setScalar(rand(0.5, 0.9));
       mesh.position.copy(hand);
       g.scene.add(mesh);
-      this.projectiles.push({ type: 'rock', mesh, pos: hand.clone(), vel: dir.multiplyScalar(62).addScaledVector(UP, 4), grav: 16, life: 4, r: size + 2 });
+      this.projectiles.push({ type: 'shard', mesh, pos: hand.clone(), vel: dir.multiplyScalar(rand(50, 66)).addScaledVector(UP, 3), grav: 18, life: 3.5, r: 1.8 });
     }
-    audio.play('roar', 0.4);
+    audio.play('roar', 0.5);
   }
 
   fireBullet() {
@@ -466,16 +606,30 @@ export class PlayerTitan {
 
   updateProjectiles(dt) {
     const g = this.game;
+    const LABEL = { boulder: 'GŁAZ', shard: 'ODŁAMEK', rock: 'GŁAZ', bullet: 'ZESTRZELONY', bolt: 'PRZESTRZELONY' };
+    const DMG = { boulder: 2, shard: 1, rock: 2, bullet: 2, bolt: 2 };
     for (const p of this.projectiles) {
       p.life -= dt;
       p.vel.y -= p.grav * dt;
       p.pos.addScaledVector(p.vel, dt);
       p.mesh.position.copy(p.pos);
-      p.mesh.rotation.x += dt * 5; p.mesh.rotation.y += dt * 3;
-      for (const s of this.liveScouts()) if (s.pos.distanceTo(p.pos) < p.r) { g.killScout(s, p.type === 'rock' ? 'GŁAZ' : 'ZESTRZELONY'); if (p.type === 'bullet') p.life = 0; }
-      if (g.world.solid(p.pos.x, p.pos.y, p.pos.z) || p.pos.y < g.world.groundY(p.pos.x, p.pos.z)) {
-        if (p.type === 'rock') { this.smash(p.pos, 2.6, { protectWall: true }); g.shake(0.3); audio.play('crumble', 0.6); }
-        g.particles.puff(p.pos.x, p.pos.y, p.pos.z, 0, 2, 0, p.type === 'rock' ? 4 : 1, 0.8, 0xb8b0a0, 0.5, 2);
+      if (p.type === 'bolt') p.mesh.lookAt(p.pos.clone().add(p.vel));
+      else { p.mesh.rotation.x += dt * 5; p.mesh.rotation.y += dt * 3; }
+      for (const s of this.liveScouts()) {
+        if (s.pos.distanceTo(p.pos) >= p.r) continue;
+        if (p.type === 'bolt') { if (!p.hit.has(s)) { p.hit.add(s); g.damageScout(s, DMG.bolt, LABEL.bolt); } continue; } // pierces
+        g.damageScout(s, DMG[p.type], LABEL[p.type]);
+        if (p.type === 'bullet' || p.type === 'shard') p.life = 0;
+      }
+      if (p.life > 0 && (g.world.solid(p.pos.x, p.pos.y, p.pos.z) || p.pos.y < g.world.groundY(p.pos.x, p.pos.z))) {
+        if (p.type === 'boulder') {
+          this.smash(p.pos, 4.5, { protectWall: true });
+          for (const s of this.liveScouts()) if (s.pos.distanceTo(p.pos) < 7) g.damageScout(s, 2, LABEL.boulder);
+          for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2; g.particles.puff(p.pos.x, p.pos.y, p.pos.z, Math.cos(a) * 8, 2, Math.sin(a) * 8, 4, 1.2, 0xb8b0a0, 0.55, 2); }
+          g.shake(0.6); audio.play('crumble', 0.9);
+        } else if (p.type === 'rock') { this.smash(p.pos, 2.6, { protectWall: true }); g.shake(0.3); audio.play('crumble', 0.6); }
+        else if (p.type === 'shard') this.smash(p.pos, 1.2, { protectWall: true });
+        g.particles.puff(p.pos.x, p.pos.y, p.pos.z, 0, 2, 0, p.type === 'boulder' ? 6 : 1, 0.8, p.type === 'bolt' ? 0x9fe8ff : 0xb8b0a0, 0.5, 2);
         p.life = 0;
       }
       if (p.life <= 0) g.scene.remove(p.mesh);
@@ -528,6 +682,7 @@ export class Scout {
     this.anchor = null;
     this.anim = { phase: 0, run: 0, air: true, slash: 0, boost: 1, speed: 20 };
     this.dead = false; this.deadT = 0; this.stunT = 0; this.frozen = false;
+    this.hp = 2; // strong hits (2) kill, light ones (1: shards, claws) stun first
     this.slashT = 0;
   }
 

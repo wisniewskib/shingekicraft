@@ -276,6 +276,13 @@ export class PlayerTitan {
       this.m.legL.rotation.x = -0.8 - k * 0.3; this.m.legR.rotation.x = -0.8 + k * 0.3;
     }
     if (this.weapon === 'crossbow' && this.swipeT < 0) this.m.armR.rotation.set(-Math.PI / 2 - g.camPitch, 0, -0.1);
+    if (this.type.claws && this.swipeT >= 0) {
+      const k = Math.min(1, this.swipeT / swipeDur), e = 1 - (1 - k) * (1 - k);
+      const side = this.anim.attackArm === 'L' ? 1 : -1;
+      const arm = side > 0 ? this.m.armL : this.m.armR;
+      arm.rotation.set(-1.45, 0, side * (1.5 - 3.0 * e));
+      this.m.body.rotation.y = side * (0.55 - 1.1 * e);
+    }
     this.m.root.updateMatrixWorld(true);
 
     const stepIdx = Math.floor(a.phase / Math.PI);
@@ -511,13 +518,31 @@ export class PlayerTitan {
     audio.play('clang', 0.5); audio.play('hook', 0.5);
   }
 
+  // Three glowing claw streaks that sweep across in front of the titan.
   clawFx(aim) {
     const g = this.game, side = this.anim.attackArm === 'L' ? 1 : -1;
+    const yaw = Math.atan2(aim.x, aim.z);
     const c = this.pos.clone().setY(this.pos.y + this.height * 0.55);
-    for (let i = 0; i < 9; i++) {
-      const a = Math.atan2(aim.x, aim.z) + side * (-1.6 + i * 0.4);
-      const r = this.height * 0.9 + 2;
-      g.particles.puff(c.x + Math.sin(a) * r, c.y + (i - 4) * 0.25, c.z + Math.cos(a) * r, 0, 0, 0, 1.2, 0.18, 0xffffff, 0.85, 0.3);
+    const R = this.height * 0.9 + 2.5;
+    for (let i = 0; i < 3; i++) {
+      const r = R - 0.8 + i * 0.8;
+      const geo = new THREE.RingGeometry(r, r + 0.22, 28, 1, -Math.PI * 0.55, Math.PI * 1.1);
+      const mat = new THREE.MeshBasicMaterial({ color: i === 1 ? 0xffffff : 0xfff0b0, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.copy(c).setY(c.y + (i - 1) * 0.35);
+      mesh.rotation.order = 'YXZ';
+      g.scene.add(mesh);
+      // lie almost flat, tilted down towards the swing side, and spin through the sweep
+      this.fx.push({ mesh, t: 0, life: 0.22, update: (f) => {
+        const k = f.t / f.life;
+        f.mesh.rotation.set(-Math.PI / 2 + side * 0.35, yaw + Math.PI / 2 - side * (0.9 - k * 1.8), side * 0.25);
+        f.mesh.material.opacity = 0.95 * (1 - k);
+        f.mesh.scale.setScalar(0.9 + k * 0.2);
+      } });
+    }
+    for (let i = 0; i < 6; i++) {
+      const a = yaw + side * (-1.2 + i * 0.5);
+      g.particles.puff(c.x + Math.sin(a) * R, c.y, c.z + Math.cos(a) * R, Math.sin(a) * 4, 0.5, Math.cos(a) * 4, 0.8, 0.25, 0xffffff, 0.7, 0.5);
     }
   }
 
@@ -579,9 +604,9 @@ export class PlayerTitan {
     this.projectiles.push({ type: 'boulder', mesh: big, pos: hand.clone(), vel: aim.clone().multiplyScalar(58).addScaledVector(UP, 5), grav: 16, life: 4, r: 3.4 });
     // ...and a spray of smaller shards that hurt less
     for (let i = 0; i < this.throwN; i++) {
-      const dir = aim.clone().add(new THREE.Vector3(rand(-0.16, 0.16), rand(-0.05, 0.12), rand(-0.16, 0.16))).normalize();
+      const dir = aim.clone().add(new THREE.Vector3(rand(-0.08, 0.08), rand(-0.03, 0.07), rand(-0.08, 0.08))).normalize();
       const mesh = new THREE.Mesh(rockGeo, rockMat);
-      mesh.scale.setScalar(rand(0.5, 0.9));
+      mesh.scale.setScalar(rand(0.9, 1.4));
       mesh.position.copy(hand);
       g.scene.add(mesh);
       this.projectiles.push({ type: 'shard', mesh, pos: hand.clone(), vel: dir.multiplyScalar(rand(50, 66)).addScaledVector(UP, 3), grav: 18, life: 3.5, r: 1.8 });

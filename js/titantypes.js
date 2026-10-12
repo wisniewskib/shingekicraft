@@ -52,7 +52,7 @@ export const TITAN_TYPES = [
     look: { skin: '#6b5240', hair: '#4a3626', fur: true, longArms: true, face: 'stern', eye: '#e0c060', hunch: 0.25 },
     lmb: 'Plaśnięcie',
     abilities: {
-      Q: { type: 'throw', name: 'Głaz z odłamkami', cd: 4, n: 9 },
+      Q: { type: 'throw', name: 'Głaz z odłamkami', cd: 4, n: 4 },
       E: { type: 'scream', name: 'Ryk', cd: 16, r: 30 },
       F: { type: 'summon', name: 'Przywołanie', cd: 30, n: 2 },
     },

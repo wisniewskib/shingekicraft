@@ -156,7 +156,7 @@ export class Titan {
     this.blindT = Math.max(0, this.blindT - dt);
     this.downT = Math.max(0, this.downT - dt);
     for (const k of ['L', 'R']) { this.limp[k] = Math.max(0, this.limp[k] - dt); this.legCut[k] = Math.max(0, this.legCut[k] - dt); }
-    if (this.legCut.L > 0 && this.legCut.R > 0 && this.downT <= 0) { this.downT = 6; this.state = 'walk'; this.anim.attack = 0; audio.play('crumble', this.vol()); g.shake(0.5 * this.vol()); }
+    if (this.legCut.L > 0 && this.legCut.R > 0 && this.downT <= 0) { this.downT = 6; this.state = 'walk'; this.anim.attack = 0; audio.play('thud', this.vol() * 0.8); g.shake(0.5 * this.vol()); }
     if (Math.random() < dt * 6) this.steamInjuries();
 
     if (this.blindT > 0) {
@@ -209,6 +209,7 @@ export class Titan {
             const ang = Math.atan2(Math.max(1, dP - this.height * 0.1), shoulderY - (v.pos.y + 1));
             this.anim.attackAngle = Math.max(0.5, Math.min(2.9, ang + (ang < 1.2 ? 0.25 : 0)));
             this.hasHit = false;
+            audio.play('swipe', this.vol());
             if (Math.random() < 0.3) audio.play('roar', this.vol() * 0.8);
           }
         }
@@ -331,6 +332,7 @@ export class Titan {
   cutPart(part, point) {
     this.stagger = 0.6;
     this.game.particles.blood(point.x, point.y, point.z, 22, 8);
+    audio.play('grunt', Math.max(0.25, this.vol()));
     if (part === 'eyes') { this.blindT = REGEN.eyes; this.state = 'walk'; this.anim.attack = 0; return 'OŚLEPIONY'; }
     if (part === 'armL' || part === 'armR') {
       const k = part === 'armL' ? 'L' : 'R';
@@ -358,6 +360,7 @@ export class Titan {
     this.m.skin.emissive.setRGB(0, 0, 0);
     this.dead = true; this.deadT = 0;
     this.state = 'dead';
+    audio.play('groan', Math.max(0.3, this.vol()));
     this.m.hardShell.visible = false;
   }
 
@@ -365,7 +368,7 @@ export class Titan {
     this.deadT += dt;
     const k = Math.min(1, this.deadT / 1.6);
     this.m.root.rotation.x = (Math.PI / 2) * k * k;
-    if (this.deadT > 1.55 && !this.landed) { this.landed = true; audio.play('crumble', this.vol()); this.game.shake(0.6 * this.vol()); }
+    if (this.deadT > 1.55 && !this.landed) { this.landed = true; audio.play('thud', this.vol()); this.game.shake(0.6 * this.vol()); }
     const g = this.game;
     if (this.deadT < 1.2 && Math.random() < 0.8) {
       const n = this.napeWorld(new THREE.Vector3());

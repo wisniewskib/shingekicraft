@@ -619,6 +619,20 @@ class Game {
       if (el.type === 'checkbox') el.checked = !!this.settings[key]; else el.value = this.settings[key];
       el.addEventListener('input', () => { this.settings[key] = el.type === 'checkbox' ? el.checked : parseFloat(el.value); this.applySettings(); });
     };
+    // own music file: stays in this browser, never uploaded
+    const showTrack = () => {
+      $('#musicName').textContent = audio.userName ? '· ' + audio.userName.replace(/\.[^.]+$/, '').slice(0, 22) : '';
+      $('#musicClear').classList.toggle('hidden', !audio.userName);
+    };
+    audio.onTrack = showTrack;
+    $('#musicPick').onclick = () => $('#musicFile').click();
+    $('#musicFile').onchange = async (e) => {
+      const f = e.target.files[0]; e.target.value = '';
+      if (!f) return;
+      audio.init();
+      try { await audio.setUserTrack(f); this.hud.toast('MUZYKA WCZYTANA'); } catch (err) { this.hud.toast('NIE UDAŁO SIĘ ODCZYTAĆ PLIKU'); }
+    };
+    $('#musicClear').onclick = () => { audio.clearUserTrack(); this.hud.toast('MUZYKA Z GRY'); };
     bind('#setSens', 'sens'); bind('#setVol', 'vol'); bind('#setMusic', 'music');
     bind('#setView', 'view'); bind('#setInvert', 'invert'); bind('#setFp', 'fp');
 
@@ -1069,7 +1083,10 @@ class Game {
       if (t && !t.dead) t.kill();
       this.fxKill(at);
       this.kills++;
-      if (m.by !== this.selfId) this.hud.feed(`${this.net.name(m.by)}: ${m.ab ? 'ODMIENIEC' : 'TYTAN'} ${m.h} m`);
+      if (m.by !== this.selfId) {
+        this.hud.feed(`${this.net.name(m.by)}: ${m.ab ? 'ODMIENIEC' : 'TYTAN'} ${m.h} m`);
+        audio.play('nape', Math.max(0, 1 - this.camera.position.distanceTo(at) / 80));
+      }
     } else if (m.e === 'crush') {
       const out = [];
       if (this.world.destroySphere(at.x, at.y, at.z, m.r, out, { skip: HARD_BLOCKS })) { this.world.dirtyFlag = true; this.particles.debris(out, BLOCK_COLORS); }
@@ -1108,7 +1125,7 @@ class Game {
     else if (this.myKills === 1) this.say('first', 'Pierwszy padł. Dobra robota, leć dalej.');
     this.hud.feed(`${o.ab ? 'ODMIENIEC' : 'TYTAN'} ${o.h} m ZABITY`);
     p.blade = Math.max(0, p.blade - 20);
-    audio.play('cut');
+    audio.play('nape');
     this.hud.flash('kflash');
     this.fovKick = 10;
     if (!this.multiplayer) { this.slowT = 0.55; this.hitStop = 0.05; }

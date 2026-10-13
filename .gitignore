@@ -7,3 +7,5 @@ art-src/
 .DS_Store
 Thumbs.db
 *.swp
+# music files stay local (copyrighted tracks must not reach the public repo)
+music/

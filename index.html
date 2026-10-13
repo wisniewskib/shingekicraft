@@ -197,6 +197,9 @@
   #keys ul { display: none; }
   .set-grid { display: grid; grid-template-columns: 1fr 160px; gap: 10px 16px; align-items: center; text-align: left; margin: 16px 0 10px; font-size: 15px; }
   .set-grid input[type=range] { width: 160px; accent-color: #e0c272; }
+  .music-pick { display: flex; gap: 6px; }
+  .music-pick .btn.mini { margin: 0; padding: 4px 10px; font-size: 13px; min-width: 0; }
+  .music-pick .btn.mini:first-child { flex: 1; }
   .set-grid input[type=checkbox] { width: 18px; height: 18px; accent-color: #e0c272; justify-self: start; }
   .rank { font: 900 96px 'Cinzel', serif; line-height: 1; color: var(--gold2); text-shadow: 0 4px 0 #3a2a10; margin: 4px 0; }
   .rank.S { color: #ffe27a; } .rank.D { color: #c9b9a0; }
@@ -446,6 +449,8 @@
     <label for="setSens">Czułość myszy</label><input type="range" id="setSens" min="0.4" max="2.5" step="0.05">
     <label for="setVol">Głośność ogólna</label><input type="range" id="setVol" min="0" max="1" step="0.05">
     <label for="setMusic">Głośność muzyki <kbd>M</kbd></label><input type="range" id="setMusic" min="0" max="1" step="0.05">
+    <label for="musicFile">Własna muzyka <small id="musicName" style="color:#8f877a"></small></label>
+    <span class="music-pick"><button class="btn mini" id="musicPick">Wybierz plik</button><button class="btn mini hidden" id="musicClear" title="Wróć do muzyki z gry">✕</button><input type="file" id="musicFile" accept="audio/*" hidden></span>
     <label for="setView">Zasięg widzenia</label><input type="range" id="setView" min="110" max="320" step="10">
     <label for="setInvert">Odwróć oś Y myszy</label><input type="checkbox" id="setInvert">
     <label for="setFp">Widok z pierwszej osoby <kbd>V</kbd></label><input type="checkbox" id="setFp">

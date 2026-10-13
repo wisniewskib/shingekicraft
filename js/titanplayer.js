@@ -154,7 +154,7 @@ export class PlayerTitan {
         this.anim.attackArm = this.anim.attackArm === 'L' ? 'R' : 'L';
         this.anim.attackAngle = claws ? 1.3 : 1.7;
         this.yaw = Math.atan2(f.x, f.z);
-        audio.play('slash', claws ? 0.8 : 0.6);
+        if (claws) { audio.play('slash', 0.8); audio.play('swipe', 0.4); } else audio.play('swipe', 0.9);
       }
     }
     if (input.pressed('Mouse2') && this.cd.rmb <= 0) { this.cd.rmb = 2; this.grabT = 0; this.anim.attackArm = 'R'; this.anim.attackAngle = 1.5; this.grab(); }

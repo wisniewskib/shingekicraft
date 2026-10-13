@@ -1,6 +1,6 @@
 // Other players, drawn from network snapshots: interpolated position, pose, cables, name tag.
 import * as THREE from 'three';
-import { buildSoldier, animateSoldier } from './models.js';
+import { buildSoldier, animateSoldier, updateBladeBlur } from './models.js';
 import { NET } from './net/config.js';
 import { angleDiff } from './util.js';
 
@@ -82,6 +82,8 @@ export class RemoteSoldier {
     an.phase += dt * (s.air ? 3 : an.run * 13);
     animateSoldier(this.m, an, dt);
     if (s.charged) { this.m.armL.rotation.set(-1.6, 0, 0.2); this.m.armR.rotation.set(-1.6, 0, -0.2); }
+    r.updateMatrixWorld(true);
+    updateBladeBlur(this.m, this.vel);
     this.m.auraMat.opacity = s.aura * 0.5;
     for (const au of this.m.auras) au.visible = s.aura > 0.02;
 

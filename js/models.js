@@ -95,7 +95,8 @@ export function buildSoldier(opts = {}) {
   const armL = limb(body, P(4), P(12), P(4), jacket, P(6), P(11.5), 0);
   const armR = limb(body, P(4), P(12), P(4), jacket, P(-6), P(11.5), 0);
   const auraMat = new THREE.MeshBasicMaterial({ color: 0xbff6ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
-  const auras = [];
+  const auras = [], grips = [];
+  const ghostMats = [0.32, 0.16].map((o) => new THREE.MeshBasicMaterial({ color: 0xe6eef6, transparent: true, opacity: o, depthWrite: false, userData: { base: o } }));
   for (const a of [armL, armR]) {
     add(a, 4.3, 1.2, 4.3, jacketDark, 0, -8, 0);
     add(a, 4.2, 3.4, 4.2, leather, 0, -10.6, 0); // glove
@@ -103,13 +104,26 @@ export function buildSoldier(opts = {}) {
     patch.position.set(a === armL ? P(2.05) : P(-2.05), P(-3), 0); patch.rotation.y = a === armL ? Math.PI / 2 : -Math.PI / 2;
     a.add(patch);
     add(a, 1.6, 1.6, 5, dark, 0, -12, 1.5); // handle with trigger guard
-    const blade = add(a, 0.45, 1.4, 20, steel, 0, -12, 13.5);
-    add(a, 0.5, 0.5, 20, mat(0xffffff), 0, -11.3, 13.5); // bright edge
+    // the blade sits on a grip pivot so it can swing from pointing forward to trailing back in flight
+    const grip = new THREE.Group();
+    grip.position.set(0, P(-12), P(1.5));
+    a.add(grip);
+    const blade = add(grip, 0.45, 1.4, 20, steel, 0, 0, 12);
+    add(grip, 0.5, 0.5, 20, mat(0xffffff), 0, 0.7, 12); // bright edge
     a.userData.blade = blade;
     const aura = new THREE.Mesh(box(P(3), P(4), P(34)), auraMat);
-    aura.position.set(0, P(-12), P(14));
-    a.add(aura);
+    aura.position.set(0, 0, P(12.5));
+    grip.add(aura);
     auras.push(aura);
+    // motion-blur ghosts: faint copies of the blade left behind at speed
+    grip.userData.ghosts = ghostMats.map((gm) => {
+      const gh = new THREE.Mesh(blade.geometry, gm);
+      gh.visible = false;
+      grip.add(gh);
+      return gh;
+    });
+    grip.userData.bladePos = blade.position.clone();
+    grips.push(grip);
   }
 
   // legs: white pants, thigh straps, knee-high boots
@@ -136,7 +150,7 @@ export function buildSoldier(opts = {}) {
   capeP.add(capeEm);
 
   root.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-  return { root, body, neck, armL, armR, legL, legR, cape: capeP, px, auraMat, auras };
+  return { root, body, neck, armL, armR, legL, legR, cape: capeP, px, auraMat, auras, grips, ghostMats };
 }
 
 export function animateSoldier(m, s, dt) {
@@ -147,32 +161,51 @@ export function animateSoldier(m, s, dt) {
     m.armL.rotation.x = -sw * 0.8; m.armR.rotation.x = sw * 0.8;
     m.body.rotation.x = s.run * 0.15;
   } else {
-    const fl = s.fly || 0;
+    const fl = s.fly || 0, fa = Math.min(1, fl * 1.6);
     m.legL.rotation.x = 0.5 * (1 - fl) + 0.08 * fl; m.legR.rotation.x = 0.2 * (1 - fl) + 0.15 * fl;
-    m.armL.rotation.x = 0.9 * (1 - fl) + 0.25 * fl; m.armR.rotation.x = 0.9 * (1 - fl) + 0.25 * fl;
+    // arms sweep back along the body in fast flight
+    m.armL.rotation.x = 0.9 * (1 - fa) + 0.55 * fa; m.armR.rotation.x = 0.9 * (1 - fa) + 0.55 * fa;
     m.armL.rotation.z = 0.5 * (1 - fl) + 0.25 * fl; m.armR.rotation.z = -0.5 * (1 - fl) - 0.25 * fl;
     m.body.rotation.x = (0.35 + s.boost * 0.4) * (1 - fl);
   }
   m.armL.rotation.y = 0; m.armR.rotation.y = 0;
   if (!s.air) { m.armL.rotation.z = 0.1; m.armR.rotation.z = -0.1; }
   if (s.slash > 0) {
-    // wind up (blades high and wide) -> fast diagonal cross-cut -> recover
+    // a real sweep: arms out with the blades forward, torso coils to one side then whips across
+    // (alternating left-to-right and right-to-left, each slightly diagonal)
     const d = s.slashDir || 1, t = s.slash;
-    let ax, az, twist, lean;
-    if (t < 0.25) { const k = t / 0.25; ax = -2.7 * k; az = 0.9 * k; twist = 0.5 * d * k; lean = -0.1 * k; }
-    else if (t < 0.6) { const k = (t - 0.25) / 0.35, e = 1 - (1 - k) * (1 - k); ax = -2.7 + 2.2 * e; az = 0.9 - 1.6 * e; twist = d * (0.5 - 1.1 * e); lean = -0.1 + 0.55 * e; }
-    else { const k = (t - 0.6) / 0.4; ax = -0.5 * (1 - k); az = -0.7 * (1 - k); twist = -0.6 * d * (1 - k); lean = 0.45 * (1 - k); }
-    m.armL.rotation.set(ax, 0.6 * az, az);
-    m.armR.rotation.set(ax, -0.6 * az, -az);
+    let twist, spread, lean, roll;
+    if (t < 0.22) { const k = t / 0.22; twist = 0.95 * d * k; spread = 1.25 * k; lean = -0.12 * k; roll = 0.18 * d * k; }
+    else if (t < 0.62) { const k = (t - 0.22) / 0.4, e = 1 - (1 - k) * (1 - k) * (1 - k); twist = d * (0.95 - 2.15 * e); spread = 1.25; lean = -0.12 + 0.3 * e; roll = d * (0.18 - 0.4 * e); }
+    else { const k = (t - 0.62) / 0.38; twist = -1.2 * d * (1 - k); spread = 1.25 * (1 - k); lean = 0.18 * (1 - k); roll = -0.22 * d * (1 - k); }
+    m.armL.rotation.set(-0.35, 0, spread);
+    m.armR.rotation.set(-0.35, 0, -spread);
     m.body.rotation.y = twist;
     m.body.rotation.x += lean;
-  } else m.body.rotation.y = 0;
+    m.body.rotation.z = roll;
+  } else { m.body.rotation.y = 0; m.body.rotation.z = 0; }
   if (s.spin) {
     m.armL.rotation.set(0.2, 0, 1.45); m.armR.rotation.set(0.2, 0, -1.45);
     m.legL.rotation.x = 0.3; m.legR.rotation.x = 0.3;
     m.body.rotation.x = 0.25;
   }
   m.cape.rotation.x = 0.15 + Math.min(1.2, s.speed * 0.04) + Math.sin(s.phase * 2.3) * 0.08;
+  // in fast flight the blades swing back to trail along the arms; they snap forward to strike
+  const trail = s.air && !(s.slash > 0) && !s.spin ? Math.min(1, (s.fly || 0) * 1.6) * 1.75 : 0;
+  for (const g of m.grips) g.rotation.x += (trail - g.rotation.x) * Math.min(1, (trail > g.rotation.x ? 6 : 18) * (dt || 0.016));
+}
+
+// Faint blade copies left behind along the velocity: reads as motion blur at high speed.
+const _w = new THREE.Vector3();
+export function updateBladeBlur(m, vel) {
+  const k = Math.min(1, Math.max(0, (vel.length() - 16) / 18));
+  for (const gm of m.ghostMats) gm.opacity = gm.userData.base * k;
+  for (const g of m.grips) g.userData.ghosts.forEach((gh, j) => {
+    gh.visible = k > 0.02;
+    if (!gh.visible) return;
+    g.localToWorld(_w.copy(g.userData.bladePos)).addScaledVector(vel, -0.014 * (j + 1));
+    gh.position.copy(g.worldToLocal(_w));
+  });
 }
 
 // ---------------- Titan ----------------

@@ -23,7 +23,7 @@ function warnTexture() {
 const REGEN = { eyes: 7, arm: 12, leg: 9 };
 
 export class Titan {
-  constructor(game, { height, abnormal = false, x, z, ally = false, id = null, puppet = false }) {
+  constructor(game, { height, abnormal = false, x, z, ally = false, id = null, puppet = false, boss = false, look = null }) {
     this.game = game;
     this.id = id ?? ++SEED;
     this.puppet = puppet; // driven by network snapshots instead of AI
@@ -31,8 +31,8 @@ export class Titan {
     this.abnormal = abnormal;
     this.ally = ally;
     // the look is derived from the id so every player sees the same titan
-    const look = (this.id * 2654435761) >>> 0;
-    this.m = buildTitan(height, this.id * 7919, { bigHead: abnormal && look % 5 < 3, longArms: abnormal, thin: abnormal });
+    const hash = (this.id * 2654435761) >>> 0;
+    this.m = buildTitan(height, this.id * 7919, boss && look ? look : { bigHead: abnormal && hash % 5 < 3, longArms: abnormal, thin: abnormal });
     this.netBuf = [];
     this.m.root.rotation.order = 'YXZ';
     for (const mesh of this.m.meshes) mesh.userData.titan = this;
@@ -56,11 +56,42 @@ export class Titan {
     this.lastStep = 0;
     this.radius = height * 0.18;
     this.jumpV = 0; this.jumpY = 0;
+    // the Colossal boss: never walks, rises behind the wall, kicks the gate in and vents scalding steam
+    this.boss = boss;
+    if (boss) {
+      this.speed = 0; this.turnRate = 0.5; this.yaw = Math.PI;
+      this.bossHp = 5; this.bossT = 0; this.steamT = 0; this.steamCd = 12; this.riseY = puppet ? 0 : -height;
+    }
+  }
+
+  get steaming() { return this.steamT > 0; }
+
+  updateBoss(dt) {
+    const g = this.game;
+    this.bossT += dt;
+    if (this.bossT < 3.2) {
+      const k = this.bossT / 3.2;
+      this.riseY = -this.height * (1 - k) * (1 - k);
+      if (Math.random() < 0.9) g.particles.steam(this.pos.x + rand(-12, 12), this.pos.y + rand(0, this.height + this.riseY), this.pos.z + rand(-6, 6), 14, 2);
+    } else this.riseY = 0;
+    if (!this.introBolt && this.bossT > 0.1) { this.introBolt = true; g.bossIntro(this); }
+    if (!this.kicked && this.bossT > 4.6) { this.kicked = true; g.bossKick(this); }
+    if (this.bossT < 5) return;
+    if (this.steamT > 0) {
+      this.steamT -= dt;
+      g.bossSteam(this, dt);
+      if (this.steamT <= 0) this.steamCd = rand(10, 13);
+    } else {
+      this.steamCd -= dt;
+      // leaking wisps warn that a burst is coming
+      if (this.steamCd < 1.8 && Math.random() < 0.6) { const n = this.napeWorld(); g.particles.steam(n.x + rand(-3, 3), n.y, n.z + rand(-3, 3), 4, 1); }
+      if (this.steamCd <= 0) { this.steamT = 3.6; audio.play('roar', Math.max(0.5, this.vol())); audio.play('thunder', 0.35); g.hud.toast('KOLOS BUCHA PARĄ · ODSKOCZ!'); }
+    }
   }
 
   pickWander() {
     if (this.ally) return new THREE.Vector3(rand(10, W - 10), 0, rand(10, D - 10));
-    if (this.game.world.def.breached && Math.random() < 0.45) return new THREE.Vector3(rand(10, W - 10), 0, rand(8, WALLZ - 8));
+    if ((this.game.world.def.breached || this.game.gateBreached) && Math.random() < 0.45) return new THREE.Vector3(rand(10, W - 10), 0, rand(8, WALLZ - 8));
     const p = this.game.world.randomOutside(Math.random, WALLZ + 12);
     return new THREE.Vector3(p.x, 0, p.z);
   }
@@ -86,7 +117,7 @@ export class Titan {
         if (d < bd) { bd = d; best = v; }
       }
       if (!best) return null;
-      return { pos: best.pos, chest: best.chest, hit: (dmg) => best.hit(dmg, this), grab: () => best.grab(this) };
+      return { pos: best.pos, chest: best.chest, size: best.size || 0, hit: (dmg) => best.hit(dmg, this), grab: best.grab ? () => best.grab(this) : null };
     }
     let best = null, bd = 90;
     for (const s of g.scouts) {
@@ -117,6 +148,7 @@ export class Titan {
     this.pos.set(sa.pos[0] + (s.pos[0] - sa.pos[0]) * k, sa.pos[1] + (s.pos[1] - sa.pos[1]) * k, sa.pos[2] + (s.pos[2] - sa.pos[2]) * k);
     this.yaw = sa.yaw + angleDiff(sa.yaw, s.yaw) * k;
     this.state = s.state; this.attackArm = s.arm; this.stagger = s.stagger;
+    if (this.boss) { this.steamT = s.steam ? 1 : 0; if (s.steam) g.bossSteamFx(this); }
     this.blindT = s.blind ? 1 : 0; this.downT = s.down ? 1 : 0;
     this.limp.L = s.limpL ? 1 : 0; this.limp.R = s.limpR ? 1 : 0; this.legCut.L = s.legL ? 1 : 0; this.legCut.R = s.legR ? 1 : 0;
     const an = this.anim;
@@ -146,6 +178,7 @@ export class Titan {
     const g = this.game;
     if (this.dead) return this.updateDead(dt);
     if (this.puppet) return this.updatePuppet(dt);
+    if (this.boss) this.updateBoss(dt);
     const v = this.victim();
     const target = new THREE.Vector3();
     let chasing = false;
@@ -175,7 +208,7 @@ export class Titan {
 
     // breached wall: anything inside the district is reached through the hole in the gate
     const gateX = (GATE_X0 + GATE_X1) / 2 + 0.5;
-    if (g.world.def.breached && !this.ally && target.z < WALLZ && this.pos.z > WALLZ + 2 && Math.abs(this.pos.x - gateX) > 4) target.set(gateX, 0, WALLZ + 6);
+    if ((g.world.def.breached || g.gateBreached) && !this.ally && target.z < WALLZ && this.pos.z > WALLZ + 2 && Math.abs(this.pos.x - gateX) > 4) target.set(gateX, 0, WALLZ + 6);
     this.cool = Math.max(0, this.cool - dt);
     this.stagger = Math.max(0, this.stagger - dt);
     let moveSpeed = 0;
@@ -230,8 +263,9 @@ export class Titan {
         const sh = arm.getWorldPosition(new THREE.Vector3());
         const hand = arm.localToWorld(new THREE.Vector3(0, -14 * this.m.px, 0));
         const c = new THREE.Line3(sh, hand).closestPointToPoint(v.chest, true, new THREE.Vector3());
-        if (c.distanceTo(v.chest) < this.height * 0.16 + 1.6 + (this.ally ? 2 : 0)) {
-          if (v.grab && Math.random() < 0.55) { v.grab(); this.state = 'hold'; this.t = 0; this.holdStart = g.time; }
+        // hand-sized reach around the swinging arm: a near miss stays a miss
+        if (c.distanceTo(v.chest) < this.height * 0.07 + 1.1 + (this.ally ? 2 : 0) + (v.size || 0)) {
+          if (v.grab && Math.random() < 0.45) { v.grab(); this.state = 'hold'; this.t = 0; this.holdStart = g.time; }
           else v.hit(28 + this.height * 1.4);
         }
       }
@@ -272,11 +306,11 @@ export class Titan {
       if (this.jumpY <= 0) { this.jumpY = 0; this.jumpV = 0; audio.play('step', this.vol()); g.shake(0.4 * this.vol()); }
     }
     for (const o of g.titans) {
-      if (o === this || o.dead) continue;
+      if (o === this || o.dead || this.boss) continue;
       const dx = this.pos.x - o.pos.x, dz = this.pos.z - o.pos.z, d = Math.hypot(dx, dz), min = this.radius + o.radius + 1;
       if (d < min && d > 0.01) { this.pos.x += (dx / d) * (min - d) * 0.5; this.pos.z += (dz / d) * (min - d) * 0.5; }
     }
-    const throughGate = g.world.def.breached && Math.abs(this.pos.x - (GATE_X0 + GATE_X1) / 2 - 0.5) < 6;
+    const throughGate = (g.world.def.breached || g.gateBreached) && Math.abs(this.pos.x - (GATE_X0 + GATE_X1) / 2 - 0.5) < 6;
     if (!this.ally && !throughGate && this.pos.z > WALLZ - 1) {
       const wallStop = WALLZ + 3 + this.height * 0.1;
       if (this.pos.z < wallStop) {
@@ -295,7 +329,7 @@ export class Titan {
     a.lean = this.abnormal ? 0.35 : 0;
     a.kneel = this.down; a.blind = this.blindT; a.limpL = this.limp.L > 0; a.limpR = this.limp.R > 0;
     const sink = this.down ? -10 * this.m.px : 0;
-    this.m.root.position.set(this.pos.x, this.pos.y + this.jumpY + sink, this.pos.z);
+    this.m.root.position.set(this.pos.x, this.pos.y + this.jumpY + sink + (this.riseY || 0), this.pos.z);
     this.m.root.rotation.y = this.yaw;
     animateTitan(this.m, a);
     // severed arms leave a stump until they regrow
@@ -360,6 +394,7 @@ export class Titan {
     this.m.skin.emissive.setRGB(0, 0, 0);
     this.dead = true; this.deadT = 0;
     this.state = 'dead';
+    if (this.boss) { this.steamT = 0; this.game.bossDown = true; }
     audio.play('groan', Math.max(0.3, this.vol()));
     this.m.hardShell.visible = false;
   }

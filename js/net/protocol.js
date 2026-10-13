@@ -56,8 +56,8 @@ const STATE_NAMES = ['walk', 'attack', 'hold', 'dead'];
 export function packTitan(t) {
   const a = t.anim;
   const flags = (t.down ? 1 : 0) | (t.blindT > 0 ? 2 : 0) | (t.limp.L > 0 ? 4 : 0) | (t.limp.R > 0 ? 8 : 0)
-    | (t.legCut.L > 0 ? 16 : 0) | (t.legCut.R > 0 ? 32 : 0) | (t.warn.visible ? 64 : 0) | (t.abnormal ? 128 : 0) | (t.ally ? 256 : 0);
-  return [t.id, r2(t.height), r2(t.pos.x), r2(t.pos.y + t.jumpY), r2(t.pos.z), r3(t.yaw), STATE[t.state] ?? 0,
+    | (t.legCut.L > 0 ? 16 : 0) | (t.legCut.R > 0 ? 32 : 0) | (t.warn.visible ? 64 : 0) | (t.abnormal ? 128 : 0) | (t.ally ? 256 : 0) | (t.boss ? 512 : 0) | (t.steamT > 0 ? 1024 : 0);
+  return [t.id, r2(t.height), r2(t.pos.x), r2(t.pos.y + t.jumpY + (t.riseY || 0)), r2(t.pos.z), r3(t.yaw), STATE[t.state] ?? 0,
     r2(a.attack || 0), a.attackArm === 'L' ? 0 : 1, r2(a.attackAngle || 2.1), flags, r2(a.phase), r2(a.run), r2(a.lean || 0), r2(t.stagger)];
 }
 
@@ -66,7 +66,7 @@ export function unpackTitan(p) {
   return {
     id: p[0], height: p[1], pos: [p[2], p[3], p[4]], yaw: p[5], state: STATE_NAMES[p[6]], attack: p[7], arm: p[8] ? 'R' : 'L',
     angle: p[9], down: !!(f & 1), blind: !!(f & 2), limpL: !!(f & 4), limpR: !!(f & 8), legL: !!(f & 16), legR: !!(f & 32),
-    warn: !!(f & 64), abnormal: !!(f & 128), ally: !!(f & 256), phase: p[11], run: p[12], lean: p[13], stagger: p[14],
+    warn: !!(f & 64), abnormal: !!(f & 128), ally: !!(f & 256), boss: !!(f & 512), steam: !!(f & 1024), phase: p[11], run: p[12], lean: p[13], stagger: p[14],
   };
 }
 

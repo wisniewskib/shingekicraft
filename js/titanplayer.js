@@ -102,7 +102,10 @@ export class PlayerTitan {
     if (this.nape <= 0) { this.nape = 0; this.dead = true; this.game.onPlayerDeath(); }
   }
 
-  liveScouts() { return this.game.scouts.filter((s) => !s.dead); }
+  liveScouts() {
+    const g = this.game, out = g.scouts.filter((s) => !s.dead);
+    return g.transform ? out.concat(g.titanProxies()) : out;
+  }
 
   update(dt, input) {
     const g = this.game;
@@ -323,7 +326,7 @@ export class PlayerTitan {
   // Every attack also clears scouts hanging on your neck.
   napeSwat() {
     const n = this.napeWorld();
-    for (const s of this.liveScouts()) if (s.pos.distanceTo(n) < this.height * 0.4 + 5) this.game.killScout(s, 'STRĄCONY Z KARKU');
+    for (const s of this.liveScouts()) if (!s.titan && s.pos.distanceTo(n) < this.height * 0.4 + 5) this.game.killScout(s, 'STRĄCONY Z KARKU');
   }
 
   grab() {
@@ -354,8 +357,8 @@ export class PlayerTitan {
       case 'kick': this.kickT = 0; this.kickDef = a; this.yaw = Math.atan2(this.aimFlat().x, this.aimFlat().z); break;
       case 'scream': this.scream(a); break;
       case 'steam': this.steamT = a.dur; this.steamDef = a; audio.play('roar'); g.hud.toast('WYBUCH PARY'); break;
-      case 'throw': if (this.throwT >= 0) return; this.throwT = 0; this.throwN = a.n; this.yaw = Math.atan2(this.aimFlat().x, this.aimFlat().z); break;
-      case 'summon': this.summon(a.n); break;
+      case 'throw': if (this.throwT >= 0) return; this.throwT = 0; this.throwDef = a; this.yaw = Math.atan2(this.aimFlat().x, this.aimFlat().z); break;
+      case 'summon': if (a.scream) this.scream(a.scream); this.summon(a.n); break;
       case 'dash': this.dashT = 0.45; this.yaw = Math.atan2(this.aimFlat().x, this.aimFlat().z); audio.play('hook'); break;
       case 'cannon': this.cannonT = a.dur; g.hud.toast('DZIAŁKA'); break;
       case 'leap':
@@ -596,22 +599,28 @@ export class PlayerTitan {
     const g = this.game;
     const hand = this.handWorld(new THREE.Vector3(), 'R');
     const aim = g.camDir.clone();
-    // one big boulder...
+    const def = this.throwDef || {};
+    if (def.mode === 'spray') {
+      // rock crushed in the fist and flung: a wide cone of light shards
+      for (let i = 0; i < (def.n || 12); i++) {
+        const dir = aim.clone().add(new THREE.Vector3(rand(-0.2, 0.2), rand(-0.08, 0.14), rand(-0.2, 0.2))).normalize();
+        const mesh = new THREE.Mesh(rockGeo, rockMat);
+        mesh.scale.setScalar(rand(0.6, 1.1));
+        mesh.position.copy(hand);
+        g.scene.add(mesh);
+        this.projectiles.push({ type: 'shard', mesh, pos: hand.clone(), vel: dir.multiplyScalar(rand(56, 72)).addScaledVector(UP, 2), grav: 18, life: 3, r: 1.6 });
+      }
+      for (let i = 0; i < 14; i++) g.particles.puff(hand.x, hand.y, hand.z, aim.x * 20 + rand(-5, 5), aim.y * 20 + rand(-2, 4), aim.z * 20 + rand(-5, 5), 1.6, 0.6, 0x9a8f80, 0.6, 1.4);
+      audio.play('crumble', 0.7); audio.play('swipe', 0.8);
+      return;
+    }
+    // one big boulder that flattens what it hits
     const big = new THREE.Mesh(rockGeo, rockMat);
-    big.scale.setScalar(3.4);
+    big.scale.setScalar(3.6);
     big.position.copy(hand);
     g.scene.add(big);
-    this.projectiles.push({ type: 'boulder', mesh: big, pos: hand.clone(), vel: aim.clone().multiplyScalar(58).addScaledVector(UP, 5), grav: 16, life: 4, r: 3.4 });
-    // ...and a spray of smaller shards that hurt less
-    for (let i = 0; i < this.throwN; i++) {
-      const dir = aim.clone().add(new THREE.Vector3(rand(-0.08, 0.08), rand(-0.03, 0.07), rand(-0.08, 0.08))).normalize();
-      const mesh = new THREE.Mesh(rockGeo, rockMat);
-      mesh.scale.setScalar(rand(0.9, 1.4));
-      mesh.position.copy(hand);
-      g.scene.add(mesh);
-      this.projectiles.push({ type: 'shard', mesh, pos: hand.clone(), vel: dir.multiplyScalar(rand(50, 66)).addScaledVector(UP, 3), grav: 18, life: 3.5, r: 1.8 });
-    }
-    audio.play('roar', 0.5);
+    this.projectiles.push({ type: 'boulder', mesh: big, pos: hand.clone(), vel: aim.clone().multiplyScalar(58).addScaledVector(UP, 5), grav: 16, life: 4, r: 3.6 });
+    audio.play('swipe', 1); audio.play('roar', 0.5);
   }
 
   fireBullet() {

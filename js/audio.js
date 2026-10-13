@@ -266,6 +266,15 @@ class Audio {
         this.rubble(10, 0.9, 0.16 * vol, 0.05);
         this.steam(2.2, 0.08 * vol, 0.1);
         break;
+      case 'thunder':
+        // transformation lightning: a sharp crack, then a long rolling rumble
+        this.noiseHit({ type: 'highpass', f: 2500, dur: 0.08, vol: 0.9 * vol });
+        this.noiseHit({ type: 'bandpass', f: 4000, f2: 400, q: 0.7, dur: 0.5, vol: 0.8 * vol, at: 0.02 });
+        this.tone({ type: 'sine', f: 70, f2: 24, dur: 1.6, vol: 0.9 * vol, at: 0.05 });
+        this.noiseHit({ type: 'lowpass', f: 500, f2: 60, dur: 2.8, vol: 0.7 * vol, at: 0.08 });
+        this.noiseHit({ type: 'lowpass', f: 300, f2: 50, dur: 2.2, vol: 0.5 * vol, at: 0.6 });
+        this.steam(2.5, 0.22 * vol, 0.15);
+        break;
       case 'crumble':
         // stone and timber collapsing
         this.noiseHit({ type: 'lowpass', f: 700, f2: 90, dur: 0.9, vol: 0.55 * vol });

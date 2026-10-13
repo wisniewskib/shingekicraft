@@ -74,6 +74,19 @@
   #playerCard { position: absolute; left: 16px; bottom: 16px; width: 300px; }
   #hpBar { background: linear-gradient(90deg, #b82c22, #ff5a46) !important; }
   #gasBar { background: linear-gradient(90deg, #a8d8ef, #ffffff) !important; }
+  #rageBar { background: linear-gradient(90deg, #a8461c, #ffb347) !important; }
+  #rageWrap.full .bar { box-shadow: 0 0 10px #ffb347; animation: blink .5s infinite alternate; }
+  #rageWrap.full #rageVal { color: #ffd27a; }
+  #bolt { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(255,250,215,.95), rgba(255,220,120,.55) 60%, rgba(255,200,80,.2)); opacity: 0; pointer-events: none; }
+  #letterbox { position: absolute; inset: 0; pointer-events: none; }
+  #letterbox::before, #letterbox::after { content: ''; position: absolute; left: 0; right: 0; height: 0; background: #000; transition: height .25s ease-out; z-index: 5; }
+  #letterbox::before { top: 0; } #letterbox::after { bottom: 0; }
+  #letterbox.on::before, #letterbox.on::after { height: 9vh; }
+  #bossWrap { position: absolute; top: 118px; left: 50%; transform: translateX(-50%); width: min(520px, 80vw); text-align: center; display: none; }
+  #bossWrap .bn { font: 700 15px 'Oswald'; letter-spacing: .25em; color: #ffcf9a; text-shadow: 0 2px 4px #000; margin-bottom: 4px; }
+  #bossWrap .bar { height: 12px; border: 1px solid rgba(255,190,120,.4); }
+  #bossBar { background: linear-gradient(90deg, #8a1a10, #ff6a3a) !important; }
+  #bossWrap.steam .bn::after { content: ' · PARA!'; color: #ff7a5a; }
   #bladeBar { background: linear-gradient(90deg, #8aa0b8, #dfeaf6) !important; }
   #pips { display: flex; gap: 4px; margin-top: 4px; padding-left: 80px; }
   #pips i { width: 14px; height: 6px; border-radius: 2px; background: rgba(255,255,255,.2); }
@@ -329,11 +342,15 @@
   <div id="gasLow">MAŁO GAZU · UZUPEŁNIJ</div>
   <div id="grabbed"><div class="g1">ZŁAPANY!</div><div class="g2">WCISKAJ <kbd>F</kbd> ŻEBY SIĘ UWOLNIĆ</div><div class="bar"><div id="grabBar"></div></div></div>
   <div id="flash"></div>
+  <div id="bolt"></div>
+  <div id="letterbox"></div>
+  <div id="bossWrap"><div class="bn" id="bossName">KOLOS</div><div class="bar"><div id="bossBar"></div></div></div>
   <div id="kflash"></div>
   <div id="playerCard">
     <div class="lab"><span id="hpLabel">ZDROWIE</span><span id="hpVal"></span></div>
     <div class="bar"><div id="hpBar"></div></div>
     <div id="gasWrap"><div class="lab"><span>GAZ</span><span id="gasVal"></span></div><div class="bar"><div id="gasBar"></div></div></div>
+    <div id="rageWrap"><div class="lab"><span>SZAŁ</span><span id="rageVal"></span></div><div class="bar"><div id="rageBar"></div></div></div>
     <div id="bladeWrap">
       <div class="lab"><span>OSTRZA</span><span></span></div>
       <div class="blades"><div class="bicon"><i id="bL"></i><i id="bR"></i></div><div><div class="bn">×<span id="bladeVal">6</span></div><small>ZAPASOWE PARY · R ZMIENIA</small></div></div>
@@ -358,6 +375,7 @@
     <button class="btn" data-go="campaign">Kampania<small id="campaignSub">5 misji</small></button>
     <button class="btn" data-go="missions">Wybór misji</button>
     <button class="btn" data-go="freeroam">Wolna gra</button>
+    <button class="btn" data-free="waves">Fale<small>Ile fal przetrwasz? Ranking najlepszych wyników</small></button>
     <button class="btn" data-go="controls">Sterowanie</button>
     <button class="btn" id="qualityBtn">Grafika: Średnia<small>Zmniejsz, jeśli gra się tnie. F3 pokazuje FPS.</small></button>
   </div>
@@ -453,6 +471,7 @@
     <span class="music-pick"><button class="btn mini" id="musicPick">Wybierz plik</button><button class="btn mini hidden" id="musicClear" title="Wróć do muzyki z gry">✕</button><input type="file" id="musicFile" accept="audio/*" hidden></span>
     <label for="setView">Zasięg widzenia</label><input type="range" id="setView" min="110" max="320" step="10">
     <label for="setInvert">Odwróć oś Y myszy</label><input type="checkbox" id="setInvert">
+    <label for="setKillcam">Kamera kinowa przy zabójstwie</label><input type="checkbox" id="setKillcam">
     <label for="setFp">Widok z pierwszej osoby <kbd>V</kbd></label><input type="checkbox" id="setFp">
   </div>
   <div id="pauseKeys" class="hidden"></div>

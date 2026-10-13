@@ -219,7 +219,7 @@ export class NetSession {
     return {
       t: T.BOARD,
       list: [...this.players.values()].map((p) => [p.id, p.name, p.score, p.kills]),
-      kills: g.kills, abnormals: g.abnormalKills, district: Math.round(g.district), elapsed: Math.round(g.elapsed * 10) / 10,
+      kills: g.kills, abnormals: g.abnormalKills, district: Math.round(g.district), elapsed: Math.round(g.elapsed * 10) / 10, boss: g.boss && !g.boss.dead ? g.boss.bossHp : 0,
     };
   }
 

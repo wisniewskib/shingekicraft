@@ -3,13 +3,15 @@
 // wire makes a pendulum (no gas); reeling the wire in is gas-driven and pulls you in a
 // straight line; gas jets give thrust, mid-air steering and braking (reverse thrust).
 import * as THREE from 'three';
-import { buildSoldier, animateSoldier } from './models.js';
+import { buildSoldier, animateSoldier, updateBladeBlur } from './models.js';
 import { moveAABB, collides } from './world.js';
 import { audio } from './audio.js';
 import { clamp, angleDiff, damp } from './util.js';
 
+const ARC_LEN = Math.PI * 0.75;
+const ARC_R = new THREE.Vector3(), ARC_U = new THREE.Vector3(), ARC_Z = new THREE.Vector3(0, 0, 1), ARC_M = new THREE.Matrix4(), ARC_Q = new THREE.Quaternion();
 const GRAV = 24, RUN = 9.5, JUMP = 9.5, AIR_ACC = 11, BOOST = 19;
-const MAX_SPEED = 46, SWING_CAP = 32, ANCHOR_STOP = 1.6;
+const MAX_SPEED = 38, SWING_CAP = 22, ZIP_SPEED = 34, ANCHOR_STOP = 1.6;
 export const HOOK_RANGE = 95;
 const HW = 0.3, HGT = 1.8;
 
@@ -213,7 +215,9 @@ export class Soldier {
     // reelK: 0 = light auto-reel that keeps swings lively, 1 = Shift winds the wire in hard
     const reelK = reelKey && hooked.length && this.gas > 0 ? 1 : 0;
     this.zipping = reelK > 0;
-    const gravity = this.lungeT <= 0;
+    // Shift + Space: fire the winch and the gas together and fly straight at the anchor
+    const zip = reelK > 0 && input.held('Space');
+    const gravity = this.lungeT <= 0 && !zip;
 
     if (this.ground && !hooked.length) {
       const k = 1 - Math.exp(-14 * dt);
@@ -223,8 +227,10 @@ export class Soldier {
     } else {
       v.addScaledVector(wish, AIR_ACC * dt);
       if (this.ground && input.pressed('Space')) v.y = Math.max(v.y, JUMP);
-      if (input.held('Space') && this.gas > 0) {
+      if (input.held('Space') && this.gas > 0 && !zip) {
         const dir = g.camDir.clone();
+        // looking down at a target shouldn't drive you into the ground: soften the downward part
+        if (dir.y < 0) { dir.y *= 0.4; dir.normalize(); }
         if (hooked.length) {
           // on a wire the gas pushes across the cable: it speeds up the swing, Shift is what reels you in
           const n = new THREE.Vector3();
@@ -232,10 +238,11 @@ export class Soldier {
           n.normalize();
           const across = dir.clone().addScaledVector(n, -dir.dot(n));
           if (across.lengthSq() > 0.05) dir.copy(across.normalize());
+          if (dir.y < 0) { dir.y *= 0.4; dir.normalize(); }
         }
         // gas pushes hard from low speed but fades out towards ~30 m/s along the boost direction
         const along = v.dot(dir);
-        const k = along < 14 ? 1.4 : along > 30 ? 0.15 : 1.4 - ((along - 14) / 16) * 1.25;
+        const k = along < 12 ? 1.4 : along > 26 ? 0.15 : 1.4 - ((along - 12) / 14) * 1.25;
         v.addScaledVector(dir, BOOST * k * dt);
         v.y += 4 * dt;
         if (v.y < -6) v.y += Math.min(-v.y - 6, 50 * dt); // boosting while dropping cushions the fall
@@ -273,9 +280,9 @@ export class Soldier {
       if (dist < 0.01) continue;
       const n = to.divideScalar(dist);
       // the winch: always a light pull, Shift winds in hard
-      const reel = this.gas > 0 ? 4 + 22 * reelK : 0;
+      const reel = this.gas > 0 ? 5.5 + 22 * reelK : 0;
       h.len = Math.max(ANCHOR_STOP, Math.min(h.len, dist) - reel * dt);
-      if (this.gas > 0) v.addScaledVector(n, (3.5 + 35 * reelK) * dt);
+      if (this.gas > 0) v.addScaledVector(n, (5 + 35 * reelK) * dt);
       // gear brake: arrive at the anchor instead of splatting into it
       const vr = v.dot(n), room = Math.max(0, dist - ANCHOR_STOP);
       const vmax = Math.sqrt(2 * 55 * room) + 3;
@@ -284,15 +291,31 @@ export class Soldier {
       if (input.moveY() > 0) {
         const tang = v.clone().addScaledVector(n, -v.dot(n));
         const tl = tang.length();
-        if (tl > 2) v.addScaledVector(tang, (7 * dt) / tl);
+        if (tl > 2) v.addScaledVector(tang, (5 * dt) / tl);
       }
+    }
+    if (zip) {
+      const to = new THREE.Vector3();
+      for (const h of hooked) to.add(h.anchor);
+      to.divideScalar(hooked.length).sub(chest);
+      const dist = to.length();
+      if (dist > 0.01) {
+        to.divideScalar(dist);
+        // full speed in a straight line, easing off as the anchor comes close
+        const room = dist - ANCHOR_STOP;
+        const want = room > 0.4 ? Math.min(ZIP_SPEED, Math.sqrt(2 * 55 * room) + 2) : 0;
+        v.lerp(to.multiplyScalar(want), 1 - Math.exp(-7 * dt));
+      }
+      this.gas = Math.max(0, this.gas - 5 * dt);
+      this.boosting = true;
     }
     if (hooked.length) this.gas = Math.max(0, this.gas - (0.35 + 3.15 * reelK) * dt);
     this.reeling = reelK > 0;
     // a long swing alone shouldn't snowball into silly speeds: bleed off anything above the cap
-    if (hooked.length && !this.boosting && !this.reeling) {
-      const sp = v.length();
-      if (sp > SWING_CAP) v.multiplyScalar(1 - Math.min(0.5, ((sp - SWING_CAP) / sp) * 3 * dt));
+    // (gas on the wire doesn't get around it either; reeling in with Shift may go a bit faster)
+    if (hooked.length && !zip) {
+      const sp = v.length(), cap = this.reeling ? SWING_CAP + 8 : SWING_CAP;
+      if (sp > cap) v.multiplyScalar(1 - Math.min(0.5, ((sp - cap) / sp) * 16 * dt));
     }
     // air drag grows with speed
     const spd = v.length();
@@ -421,6 +444,8 @@ export class Soldier {
     a.spin = this.spinT > 0 || (this.finisher && this.slashT > 0) || this.lungeT > 0;
     animateSoldier(this.m, a, dt);
     if (this.lungeT > 0 || this.charged) { this.m.armL.rotation.set(-1.6, 0, 0.2); this.m.armR.rotation.set(-1.6, 0, -0.2); }
+    this.m.root.updateMatrixWorld(true);
+    updateBladeBlur(this.m, v);
     this.updateSlashFx(dt);
     this.updateAura(dt);
 
@@ -510,9 +535,8 @@ export class Soldier {
   // White crescent that sweeps across in front of the soldier (bigger = blade aura reach).
   slashFx() {
     if (!this.arc) {
-      this.arc = new THREE.Mesh(new THREE.RingGeometry(1.4, 3.6, 32, 1, 0, Math.PI * 0.95),
+      this.arc = new THREE.Mesh(new THREE.RingGeometry(1.4, 3.6, 32, 1, 0, ARC_LEN),
         new THREE.MeshBasicMaterial({ color: 0xdff8ff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
-      this.arc.rotation.order = 'YXZ';
       this.game.scene.add(this.arc);
     }
     this.arcT = 0;
@@ -523,9 +547,18 @@ export class Soldier {
     const k = this.arcT / 0.22;
     const g = this.game;
     this.arc.visible = true;
-    this.arc.position.copy(this.chest).addScaledVector(g.camDir, 1.4);
-    const tilt = this.finisher ? Math.PI / 2 : this.slashDir * 0.6;
-    this.arc.rotation.set(-g.camPitch + (this.finisher ? -Math.PI / 2 : 0), g.camYaw, tilt + Math.PI * 0.05 - this.slashDir * k * 2.2);
+    // the crescent lies in the cutting plane (spanned by the view direction and the camera's right),
+    // tilted a little for a diagonal cut, and sweeps across the same way the torso whips
+    const fwd = g.camDir, d = this.slashDir || 1;
+    const right = ARC_R.crossVectors(fwd, UP).normalize();
+    const up = ARC_U.crossVectors(right, fwd);
+    const tilt = this.finisher ? 0 : d * 0.35;
+    right.applyAxisAngle(fwd, tilt); up.applyAxisAngle(fwd, tilt);
+    this.arc.quaternion.setFromRotationMatrix(ARC_M.makeBasis(right, fwd, up));
+    const e = 1 - (1 - k) * (1 - k);
+    const centre = Math.PI / 2 + d * (this.finisher ? 1.6 - 3.2 * e : 0.95 - 1.9 * e);
+    this.arc.quaternion.multiply(ARC_Q.setFromAxisAngle(ARC_Z, centre - ARC_LEN / 2));
+    this.arc.position.copy(this.chest).addScaledVector(fwd, 0.3).addScaledVector(up, -0.1);
     this.arc.material.opacity = 0.75 * (1 - k);
     this.arc.scale.setScalar((this.finisher ? 1.2 : 0.9) + k * 0.4);
   }

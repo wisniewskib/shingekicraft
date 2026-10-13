@@ -1,6 +1,6 @@
 // Shingekicraft — game loop, camera, missions, scoring, HUD, menus, settings.
 import * as THREE from 'three';
-import { World, MAPS, B, W, D, H, WALLZ, GATE_X0, GATE_X1, BLOCK_COLORS } from './world.js';
+import { World, MAPS, B, W, D, H, WALLZ, GATE_X0, GATE_X1, BLOCK_COLORS, GROUND as GROUND_Y } from './world.js';
 import { makeAtlas } from './textures.js';
 import { Particles } from './particles.js';
 import { Soldier, HOOK_RANGE } from './soldier.js';
@@ -45,25 +45,33 @@ const MISSIONS = [
     quote: 'Las się rusza. Z każdą minutą będzie ich więcej. Utrzymaj się przy życiu, żołnierzu.',
     bullets: ['Przetrwaj 4 minuty', 'Fale rosną z czasem', 'Gaz i ostrza przy niebieskich promieniach'],
     goal: { survive: 240 }, titans: { max: 7, abnormal: 0.25, h: [5, 15], ramp: true } },
+  { id: 'm6', name: 'Kolos nad murem', side: 'soldier', desc: 'Kolos wybił bramę. Zetnij mu kark pięć razy, zanim para cię ugotuje.', tag: 'MISJA 6 · KOLOS',
+    quote: 'Piorun nad murem… To on. Kolos. Kark ma nad blankami. Tnij, gdy nie paruje, i uciekaj, gdy bucha.',
+    bullets: ['Pięć cięć w kark Kolosa', 'Gdy bucha parą, odskocz i przeczekaj', 'Przez wybitą bramę wejdą mniejsze tytany'],
+    goal: { boss: true }, boss: true, titans: { max: 3, abnormal: 0.1, h: [5, 12] } },
 ];
 const FREE = {
   soldier: { id: 'free-s', name: 'Wolna gra', side: 'soldier', free: true, tag: 'PIASKOWNICA · TYTANY BEZ KOŃCA',
     quote: 'Żadnych rozkazów, żadnego zegara. Tytany krążą po lesie. Ćwicz bujanie i pościgi.',
     bullets: ['Tytany wciąż nadchodzą', 'Gaz i ostrza przy niebieskich promieniach', 'H pokazuje sterowanie'],
     titans: { max: 8, abnormal: 0.2, h: [4, 15] } },
+  waves: { id: 'waves', name: 'Fale', side: 'soldier', waves: true, tag: 'TRYB FAL · RANKING',
+    quote: 'Las nie przestanie ich wypluwać. Każda fala większa od poprzedniej. Ile wytrzymasz, żołnierzu?',
+    bullets: ['Fale rosną: więcej, wyżsi, więcej odmieńców', 'Po każdej fali uzupełniasz gaz i ostrza', 'Jedno życie · wynik trafia do rankingu'],
+    goal: { waves: true }, titans: { max: 8, abnormal: 0, h: [4, 9] } },
   titan: { id: 'free-t', name: 'Wolna gra', side: 'titan', free: true, scouts: true, tag: 'PIASKOWNICA · TRYB TYTANA',
     quote: 'Rób, co chcesz. Burz, depcz, zbijaj zwiadowców. Tylko pilnuj karku.',
     bullets: ['Zwiadowcy wciąż nadlatują', 'Mur i dzielnica są do zniszczenia', 'Q / E / F to twoje moce'] },
 };
 
 const SOLDIER_KEYS = [
-  ['LPM / PPM', 'lewa / prawa lina (trzymaj)'], ['Spacja', 'ciąg gazu · skok'], ['Shift', 'mocne zwijanie liny'],
+  ['LPM / PPM', 'lewa / prawa lina (trzymaj)'], ['Spacja', 'ciąg gazu · skok'], ['Shift', 'mocne zwijanie liny'], ['Shift + Spacja', 'zryw prosto do punktu'],
   ['G / C', 'dopalacze lądowania (hamulec)'], ['WASD', 'bieg · sterowanie · W rozbuja'], ['E', 'cięcie (3× = combo)'],
-  ['Trzymaj E', 'pchnięcie na kark'], ['Q', 'młynek (wirujące cięcie)'], ['F', 'unik · uwolnienie z chwytu'], ['R', 'zmiana ostrzy'],
+  ['Trzymaj E', 'pchnięcie na kark'], ['Q', 'młynek (wirujące cięcie)'], ['F', 'unik · uwolnienie z chwytu'], ['R', 'zmiana ostrzy'], ['T', 'przemiana w tytana (szał 100%)'],
   ['M', 'muzyka: pełna · pół · off'], ['V', 'kamera 1. / 3. osoba'], ['H', 'ukryj tę pomoc'], ['Esc', 'pauza · ustawienia'],
 ];
 
-const SETTINGS_DEFAULT = { sens: 1, vol: 0.8, music: 1, view: 200, invert: false, fp: false };
+const SETTINGS_DEFAULT = { sens: 1, vol: 0.8, music: 1, view: 200, invert: false, fp: false, killcam: true };
 
 // ---------------- HUD ----------------
 class HUD {
@@ -634,7 +642,7 @@ class Game {
     };
     $('#musicClear').onclick = () => { audio.clearUserTrack(); this.hud.toast('MUZYKA Z GRY'); };
     bind('#setSens', 'sens'); bind('#setVol', 'vol'); bind('#setMusic', 'music');
-    bind('#setView', 'view'); bind('#setInvert', 'invert'); bind('#setFp', 'fp');
+    bind('#setView', 'view'); bind('#setInvert', 'invert'); bind('#setKillcam', 'killcam'); bind('#setFp', 'fp');
 
     const list = $('#missionList');
     MISSIONS.forEach((m, i) => {
@@ -690,6 +698,7 @@ class Game {
     this.clearActors();
     if (this.world.dirtyFlag) { this.world.reset(); this.world.dirtyFlag = false; }
     this.player = null; this.mission = null;
+    this.clearTransform();
     this.soldier.reset();
     this.soldier.m.root.visible = false;
     this.titanPlayer.reset();
@@ -722,6 +731,9 @@ class Game {
     this.district = 100; this.spawnT = 0; this.deathAt = null; this.gateCheckT = 0; this.gatePct = 100; this.gateBroken = false;
     this.hitStop = 0; this.slowT = 0; this.fovKick = 0;
     this.said = {}; this.chains = {}; this.myKills = 0; this.respawnAt = null;
+    this.clearTransform();
+    this.gateBreached = false; this.bossDown = false; this.boss = null; this.bossHpNet = null;
+    this.wave = 0; this.waveQueue = 0; this.waveBreak = 3;
     this.multiplayer = !!this.net;
     const authority = !this.net || this.net.isHost;
     const titan = m.side === 'titan';
@@ -739,7 +751,8 @@ class Game {
       this.player = this.soldier;
       this.spawnSoldier();
       this.camYaw = Math.PI; this.camPitch = 0.05;
-      if (authority) { const n = Math.min(m.titans.max, 3); for (let i = 0; i < n; i++) this.spawnTitan(m.titans); }
+      if (authority && !m.waves) { const n = Math.min(m.titans.max, 3); for (let i = 0; i < n; i++) this.spawnTitan(m.titans); }
+      if (authority && m.boss) this.spawnBoss();
     }
     this.camTarget.copy(this.player.pos);
     this.hud.setMode(m.side, m, titan ? this.titanPlayer.type : null);
@@ -773,6 +786,53 @@ class Game {
     const t = new Titan(this, { height, abnormal: !menu && Math.random() < cfg.abnormal, x, z });
     this.titans.push(t);
     return t;
+  }
+
+  // ---------- Colossal boss ----------
+  spawnBoss() {
+    const look = TITAN_TYPES.find((t) => t.id === 'colossal').look;
+    this.boss = new Titan(this, { height: 46, x: GATE_CX, z: WALLZ + 14, boss: true, look });
+    this.titans.push(this.boss);
+  }
+  bossIntro(t) {
+    const at = t.pos.clone().setY(t.pos.y + 4);
+    this.lightning(at);
+    if (this.net && this.net.isHost) this.net.broadcast({ t: T.EV, e: 'bolt', at: vec(at) });
+    setTimeout(() => { if (this.mission && this.mission.boss && this.state !== 'menu') this.hud.radio('KOLOS! Nad bramą! Wszyscy na mur, celować w kark!', true); }, 900);
+  }
+  bossKick(t) {
+    this.breachGate();
+    if (this.net && this.net.isHost) this.net.broadcast({ t: T.EV, e: 'breach', at: vec(t.pos) });
+  }
+  // The gate is kicked in: same blocks on every machine.
+  breachGate() {
+    if (this.gateBreached) return;
+    this.gateBreached = true;
+    const out = [], skip = new Set([B.BEDROCK]);
+    for (const y of [GROUND_Y + 5, GROUND_Y + 13, GROUND_Y + 20]) this.world.destroySphere(GATE_CX, y, WALLZ, 9, out, { protectWall: false, skip });
+    this.world.dirtyFlag = true;
+    this.particles.debris(out, BLOCK_COLORS);
+    for (let i = 0; i < 30; i++) this.particles.puff(GATE_CX + rand(-8, 8), GROUND_Y + rand(2, 18), WALLZ - 2, rand(-6, 6), rand(0, 5), rand(-26, -10), 4, 1.6, 0xb8b0a0, 0.6, 2.5);
+    audio.play('crumble', 1); audio.play('thud', 1); audio.play('crumble', 0.8);
+    this.shake(1.2);
+    this.hud.popup('BRAMA WYBITA', 'TYTANY WCHODZĄ DO DZIELNICY', '');
+  }
+  bossSteamFx(t) {
+    const n = t.napeWorld();
+    for (let i = 0; i < 3; i++) this.particles.steam(n.x + rand(-8, 8), n.y + rand(-12, 4), n.z + rand(-8, 8), 12, 1);
+    if (Math.random() < 0.5) this.particles.steam(t.pos.x + rand(-9, 9), t.pos.y + rand(5, t.height), t.pos.z + rand(-9, 9), 12, 1);
+  }
+  // Authority: steam burns and throws back anyone close to the body.
+  bossSteam(t, dt) {
+    this.bossSteamFx(t);
+    t.steamTick = (t.steamTick || 0) - dt;
+    if (t.steamTick > 0) return;
+    t.steamTick = 0.45;
+    const n = t.napeWorld();
+    for (const v of this.titanTargets()) {
+      const body = Math.hypot(v.pos.x - t.pos.x, v.pos.z - t.pos.z);
+      if (v.chest.distanceTo(n) < 22 || (body < t.radius + 10 && v.pos.y < t.pos.y + t.height)) v.hit(7, t);
+    }
   }
 
   spawnAlly(x, z) {
@@ -855,6 +915,18 @@ class Game {
     const rows = [['PUNKTY', this.score.toLocaleString()], ['REKORD', Math.max(best, this.score).toLocaleString()], ['ZABICI', this.kills], ['NAJLEPSZY ŁAŃCUCH', '×' + Math.max(1, this.bestChain)], ['CZAS', fmtTime(this.elapsed)]];
     if (m.side === 'titan') rows.unshift(['TYTAN', this.titanPlayer.type.name]);
     $('#resStats').innerHTML = rows.map(([a, b]) => `<span>${a}</span><span>${b}</span>`).join('');
+    if (m.waves) {
+      const done = Math.max(0, this.wave - 1);
+      const { top, rank: pos } = this.saveWaveScore();
+      $('#resTitle').textContent = pos === 0 ? 'NOWY REKORD' : 'KONIEC FAL';
+      $('#resTitle').className = 'res-title ' + (pos === 0 ? 'win' : 'lose');
+      const wr = done >= 10 ? 'S' : done >= 7 ? 'A' : done >= 5 ? 'B' : done >= 3 ? 'C' : 'D';
+      $('#resRank').textContent = wr; $('#resRank').className = 'rank ' + wr;
+      $('#resSub').textContent = `Przetrwane fale: ${done} · padłeś na fali ${this.wave}`;
+      $('#resStats').innerHTML = `<span>PUNKTY</span><span>${this.score.toLocaleString()}</span><span>ZABICI</span><span>${this.kills}</span>`
+        + `<span style="margin-top:8px;letter-spacing:.2em;color:#e0c272">RANKING</span><span></span>`
+        + top.slice(0, 5).map((e, i) => `<span${i === pos ? ' style="color:#ffe27a"' : ''}>${i + 1}. ${e.name.replace(/[<>&]/g, '')}</span><span${i === pos ? ' style="color:#ffe27a"' : ''}>${e.score.toLocaleString()} · fala ${e.wave}</span>`).join('');
+    }
     $('#nextBtn').style.display = win && this.campaign && idx >= 0 && idx < MISSIONS.length - 1 ? '' : 'none';
     $('#retryBtn').style.display = '';
     $('#nextBtn').textContent = 'Następna misja';
@@ -887,6 +959,241 @@ class Game {
 
   // Captain lines, each said once per mission.
   say(key, msg, important) { if (this.said[key]) return; this.said[key] = true; this.hud.radio(msg, important); }
+
+  // ---------- waves ----------
+  // Each wave is bigger, taller and wilder; clearing one refills gas and blades.
+  waveCfg(n) {
+    return { max: 8, abnormal: Math.min(0.5, 0.04 * (n - 1)), h: [Math.min(12, 4 + n * 0.6), Math.min(20, 8 + n * 1.3)], far: false };
+  }
+  updateWaves(dt, alive) {
+    if (this.waveQueue > 0) {
+      this.spawnT -= dt;
+      if (alive < 8 && this.spawnT <= 0) { this.spawnTitan(this.waveCfg(this.wave)); this.waveQueue--; this.spawnT = 1.1; }
+      return;
+    }
+    if (alive > 0) return;
+    if (this.wave > 0 && !this.waveCleared) {
+      this.waveCleared = true;
+      const bonus = 1000 * this.wave;
+      this.addScore(bonus);
+      this.hud.popup(`FALA ${this.wave} ODPARTA`, 'UZUPEŁNIONO GAZ I OSTRZA', `+${bonus.toLocaleString()}`);
+      this.soldier.resupply(); audio.play('supply');
+      this.waveBreak = 6;
+    }
+    this.waveBreak -= dt;
+    if (this.waveBreak > 0) return;
+    this.wave++;
+    this.waveCleared = false;
+    this.waveQueue = 2 + this.wave * 2;
+    this.spawnT = 0;
+    this.hud.banner(`FALA ${this.wave}`, `TYTANÓW: ${this.waveQueue}`);
+    audio.play('roar', 0.8);
+    if (this.wave === 1) this.say('w1', 'Pierwsza fala nadchodzi z lasu. Trzymaj się blisko zaopatrzenia.');
+    else if (this.wave === 5) this.say('w5', 'Piąta fala! Odmieńcy się mnożą, uważaj na skoki!', true);
+  }
+
+  // Local top 10 for the waves mode.
+  saveWaveScore() {
+    const list = store('waves_top') || [];
+    const entry = { name: store('name') || 'Zwiadowca', score: this.score, wave: this.wave, at: Date.now() };
+    list.push(entry);
+    list.sort((a, b) => b.score - a.score);
+    const top = list.slice(0, 10);
+    store('waves_top', top);
+    return { top, rank: top.indexOf(entry) };
+  }
+
+  // ---------- kill cam (solo) ----------
+  // A short slow-motion orbit around the cut nape, letterboxed like a film shot.
+  startKillCam(at, h) {
+    if (this.multiplayer || !this.settings.killcam || this.time - (this.lastKillCam ?? -99) < 3.5) return;
+    this.lastKillCam = this.time;
+    const from = this.camera.position.clone().sub(at).setY(0);
+    const a0 = Math.atan2(from.z, from.x) + 0.9;
+    this.killCam = { t: 0, dur: 1.25, c: at.clone(), r: 8 + h * 0.35, a0, dir: Math.random() < 0.5 ? 1 : -1 };
+    this.hud.cls('letterbox', 'on', true);
+  }
+  updateKillCam(dt) {
+    const k = this.killCam;
+    k.t += dt;
+    const e = Math.min(1, k.t / k.dur), s = e * e * (3 - 2 * e);
+    const a = k.a0 + k.dir * 1.2 * s;
+    const r = k.r * (1.05 - 0.15 * s);
+    this.camera.position.set(k.c.x + Math.cos(a) * r, k.c.y + r * (0.15 + 0.25 * s), k.c.z + Math.sin(a) * r);
+    this.camera.lookAt(k.c);
+    if (Math.abs(this.camera.fov - 58) > 0.05) { this.camera.fov = 58; this.camera.updateProjectionMatrix(); }
+    if (this.speedDrawn) { this.speedCtx.clearRect(0, 0, innerWidth, innerHeight); this.speedDrawn = false; }
+    if (k.t >= k.dur) { this.killCam = null; this.hud.cls('letterbox', 'on', false); this.camTarget.copy(this.player.pos).setY(this.player.pos.y + 1.55); }
+  }
+
+  // ---------- transformation (solo) ----------
+  // Kills fill the rage bar; T calls down the lightning and you fight as a 15 m titan for a while.
+  addRage(n) {
+    if (this.multiplayer || this.transform || this.mission.side !== 'soldier') return;
+    const was = this.rage;
+    this.rage = Math.min(100, this.rage + n);
+    if (was < 100 && this.rage >= 100) { this.hud.toast('SZAŁ GOTOWY · T = PRZEMIANA'); this.say('rage', 'Czuję to w kościach… Ugryź się w rękę! Wciśnij T i przemień się!', true); }
+  }
+
+  startTransform() {
+    const s = this.soldier, T = this.titanPlayer;
+    this.rage = 0;
+    // transforming inside a titan's fist tears it apart
+    const holder = s.grabbedBy;
+    if (holder) { s.grabbedBy = null; this.onGrabEnd(holder, true); }
+    for (const h of s.hooks) s.detach(h);
+    s.m.root.visible = false;
+    s.vel.set(0, 0, 0);
+    const at = s.pos.clone();
+    T.setType(TITAN_TYPES.find((t) => t.id === 'attack'));
+    T.spawn(at.x, at.z, Math.atan2(this.camDir.x, this.camDir.z));
+    T.m.root.visible = true;
+    T.m.root.scale.setScalar(0.05);
+    this.player = T;
+    this.transform = { t: 0, dur: 30 };
+    this.lightning(at);
+    // the blast throws nearby titans off balance and burns the closest ones
+    for (const t of this.enemyTitans()) {
+      const d = Math.hypot(t.pos.x - at.x, t.pos.z - at.z);
+      if (d < 22) t.stagger = Math.max(t.stagger, 2.2);
+      if (d < 10) this.brawlHit(t, 45, 'PORAŻONY');
+    }
+    if (holder && !holder.dead) { holder.lastBrawl = -9; this.brawlHit(holder, 999, 'ROZERWANY OD ŚRODKA'); }
+    this.hud.setMode('titan', this.mission, T.type);
+    this.hud.q('districtWrap').classList.toggle('hidden', !this.mission.district);
+    this.hud.q('districtLabel').textContent = 'DZIELNICA';
+    this.hud.q('missionSub').textContent = 'PRZEMIANA · SZTURMOWIEC';
+    this.hud.banner('PRZEMIANA', 'SZTURMOWIEC · 30 SEKUND');
+    this.camPitch = Math.max(this.camPitch, -0.1);
+  }
+
+  // Back to human form: thrown out of the nape, the titan body steams away.
+  endTransform(beaten) {
+    const T = this.titanPlayer, s = this.soldier;
+    if (!this.transform) return;
+    this.transform = null;
+    const n = T.napeWorld();
+    const back = T.forward().multiplyScalar(-1);
+    T.dead = true;
+    this.husk = { t: 0 };
+    s.pos.copy(n).addScaledVector(back, 1.5);
+    s.vel.copy(back).multiplyScalar(7).setY(12);
+    s.invuln = 1.5;
+    if (beaten) s.hp = Math.min(s.hp, 45);
+    s.m.root.visible = true;
+    this.player = s;
+    this.camTarget.copy(s.pos);
+    this.hud.setMode('soldier', this.mission);
+    this.particles.steam(n.x, n.y, n.z, 10, 12);
+    audio.play('cut', 0.6);
+    this.hud.toast(beaten ? 'TYTAN PADŁ · WYRWAŁEŚ SIĘ Z KARKU' : 'KONIEC PRZEMIANY');
+  }
+
+  updateTransform(dt) {
+    const T = this.titanPlayer, tr = this.transform;
+    if (tr) {
+      tr.t += dt;
+      const g = Math.min(1, tr.t / 0.55);
+      if (g < 1) T.m.root.scale.setScalar(0.05 + 0.95 * (1 - (1 - g) ** 3));
+      if (tr.t < 1.4) { const c = T.pos; this.particles.steam(c.x + rand(-4, 4), c.y + rand(0, T.height), c.z + rand(-4, 4), 9, 2); }
+      if (tr.dur - tr.t < 5 && Math.random() < 0.5) { const n = T.napeWorld(); this.particles.steam(n.x, n.y, n.z, 4, 1); }
+      if (tr.t >= tr.dur) this.endTransform(false);
+    }
+    const h = this.husk;
+    if (h) {
+      h.t += dt;
+      T.m.root.rotation.x = Math.min(Math.PI / 2, (h.t / 1.4) ** 2 * (Math.PI / 2));
+      T.m.root.updateMatrixWorld(true);
+      if (Math.random() < 0.7) { const c = T.pos; this.particles.steam(c.x + rand(-3, 3), c.y + 2, c.z + rand(-3, 3), 10, 1); }
+      if (h.t > 1.4 && !h.landed) { h.landed = true; audio.play('thud', 0.9); this.shake(0.6); }
+      if (h.t > 4.5) { T.m.root.visible = false; T.m.root.rotation.x = 0; this.husk = null; }
+    }
+  }
+
+  clearTransform() {
+    this.transform = null; this.husk = null; this.rage = 0;
+    this.killCam = null; if (this.hud) this.hud.cls('letterbox', 'on', false);
+    if (this.boltFx) { this.scene.remove(this.boltFx.group); this.boltFx = null; }
+    if (this.titanPlayer && this.titanPlayer.m) this.titanPlayer.m.root.rotation.x = 0;
+  }
+
+  // A jagged bolt from the sky, a white-gold flash and a pillar of steam.
+  lightning(at) {
+    const pts = [];
+    let x = at.x, z = at.z;
+    for (let y = at.y + 110; y > at.y; y -= 9) { pts.push(new THREE.Vector3(x, y, z)); x += rand(-3.5, 3.5); z += rand(-3.5, 3.5); }
+    pts.push(at.clone());
+    const group = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({ color: 0xfff1b0, transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending });
+    const glow = new THREE.MeshBasicMaterial({ color: 0xffb040, transparent: true, opacity: 0.45, depthWrite: false, blending: THREE.AdditiveBlending });
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1], len = a.distanceTo(b);
+      for (const [m, w] of [[mat, 0.7], [glow, 2.6]]) {
+        const seg = new THREE.Mesh(box, m);
+        seg.position.lerpVectors(a, b, 0.5);
+        seg.scale.set(w, w, len);
+        seg.lookAt(b);
+        group.add(seg);
+      }
+    }
+    this.scene.add(group);
+    this.boltFx = { group, mat, glow, t: 0 };
+    const f = this.hud.q('bolt');
+    f.style.transition = 'none'; f.style.opacity = 1;
+    setTimeout(() => { f.style.transition = 'opacity 1.2s'; f.style.opacity = 0; }, 90);
+    for (let i = 0; i < 40; i++) {
+      const a = (i / 40) * Math.PI * 2;
+      this.particles.puff(at.x, at.y + 1, at.z, Math.cos(a) * 22, rand(1, 6), Math.sin(a) * 22, 4, 1.6, 0xf2ece0, 0.7, 3);
+    }
+    this.particles.steam(at.x, at.y + 4, at.z, 16, 30);
+    audio.play('thunder'); audio.play('roar', 1);
+    this.shake(1.2);
+    this.fovKick = 14;
+    if (!this.multiplayer) this.hitStop = 0.12;
+  }
+  updateBolt(dt) {
+    const b = this.boltFx;
+    if (!b) return;
+    b.t += dt;
+    const flick = b.t < 0.45 ? (Math.random() < 0.75 ? 1 : 0.2) : Math.max(0, 1 - (b.t - 0.45) / 0.3);
+    b.mat.opacity = flick; b.glow.opacity = 0.45 * flick;
+    if (b.t > 0.8) { this.scene.remove(b.group); this.boltFx = null; }
+  }
+
+  // Titan against titan: every blow chips away at a health pool; the grab tears the nape out.
+  brawlHit(t, dmg, label) {
+    if (t.dead || this.time - (t.lastBrawl || -9) < 0.3) return;
+    t.lastBrawl = this.time;
+    if (t.brawlHp === undefined) t.brawlHp = 40 + t.height * 6;
+    t.brawlHp -= dmg;
+    t.stagger = Math.max(t.stagger, 0.8);
+    const at = t.pos.clone().setY(t.pos.y + t.height * 0.6);
+    this.particles.blood(at.x, at.y, at.z, 30, 10);
+    audio.play('cut', 0.7); audio.play('grunt', 0.8);
+    this.shake(0.35);
+    if (t.brawlHp > 0) { this.addScore(120, at); this.hud.feed(label); return; }
+    t.kill();
+    this.kills++;
+    if (t.abnormal) this.abnormalKills++;
+    const pts = Math.round(700 + t.height * 70);
+    this.addScore(pts, at);
+    this.fxKill(at);
+    this.hud.popup('TYTAN ROZSZARPANY', label, `+${pts.toLocaleString()}`);
+    this.hud.feed(`${t.abnormal ? 'ODMIENIEC' : 'TYTAN'} ${Math.round(t.height)} m ROZSZARPANY`);
+  }
+  // Enemy titans as targets for the transformed player's attacks (they reuse the scout hit code).
+  titanProxies() {
+    const T = this.titanPlayer, out = [];
+    for (const t of this.enemyTitans()) {
+      const c = t.pos.clone().setY(t.pos.y + t.height * 0.5);
+      const toMe = new THREE.Vector3(T.pos.x - c.x, 0, T.pos.z - c.z);
+      const d = toMe.length();
+      if (d > 0.01) c.addScaledVector(toMe, Math.min(d, t.radius + 1) / d);
+      out.push({ titan: t, pos: c, dead: false, stun: (s) => { t.stagger = Math.max(t.stagger, Math.min(2, s)); } });
+    }
+    return out;
+  }
 
   // ---------- soldier combat ----------
   // Combat is split in two so the same rules run on the P2P host today and on a server later:
@@ -921,6 +1228,10 @@ class Game {
     const s = this.soldier;
     if (this.player === s && !s.dead && !s.grabbedBy) {
       out.push({ pos: s.pos, chest: s.chest, hit: (dmg, t) => s.hit(dmg, t.pos), grab: (t) => s.grab(t) });
+    }
+    const T = this.titanPlayer;
+    if (this.transform && this.player === T && !T.dead) {
+      out.push({ pos: T.pos, chest: T.pos.clone().setY(T.pos.y + T.height * 0.6), size: T.height * 0.22, hit: (dmg) => T.hurt(dmg * 0.45), grab: null });
     }
     if (this.net && this.net.isHost) {
       for (const p of this.net.remoteTargets()) {
@@ -1011,6 +1322,15 @@ class Game {
         const back = chest.clone().sub(nape).setY(0);
         const side = a.finisher ? 0.65 : 0.3;
         const behind = spin || back.lengthSq() < 0.04 || t.forward().dot(back.normalize()) < side || chest.y > nape.y + 1.2 || t.down;
+        if (behind && t.boss && t.steaming) return { k: 'steam' };
+        if (behind && t.boss && t.bossHp > 1) {
+          t.bossHp--;
+          t.stagger = 1.4;
+          t.steamCd = Math.min(t.steamCd, 1.8); // it answers every cut with steam
+          const pts = 1500;
+          if (this.net) this.net.credit(by, pts, false);
+          return { k: 'cut', tid: t.id, part: 'nape', at: vec(nape), label: `KARK KOLOSA · ZOSTAŁO ${t.bossHp}`, pts };
+        }
         if (behind) {
           const tags = spin ? [a.tag] : [...(a.plunge ? ['NURKOWANIE'] : []), ...(a.finisher ? ['WIR'] : [])];
           return this.killTitanSim(by, t, a, nape.clone(), tags);
@@ -1058,7 +1378,7 @@ class Game {
   // Send an outcome to whoever attacked, and let everyone see it.
   deliver(by, o) {
     if (o.k === 'kill') this.fxKill(new THREE.Vector3(...o.at));
-    if (this.net && this.net.isHost && o.k !== 'front') this.net.broadcast({ t: T.EV, e: o.k, by, ...o });
+    if (this.net && this.net.isHost && o.k !== 'front' && o.k !== 'steam') this.net.broadcast({ t: T.EV, e: o.k, by, ...o });
     if (by === this.selfId) this.applyOwnResult(o);
     else if (this.net) {
       this.net.toPlayer(by, { t: T.RES, o });
@@ -1087,6 +1407,8 @@ class Game {
         this.hud.feed(`${this.net.name(m.by)}: ${m.ab ? 'ODMIENIEC' : 'TYTAN'} ${m.h} m`);
         audio.play('nape', Math.max(0, 1 - this.camera.position.distanceTo(at) / 80));
       }
+    } else if (m.e === 'bolt') { this.lightning(at); return;
+    } else if (m.e === 'breach') { this.breachGate(); return;
     } else if (m.e === 'crush') {
       const out = [];
       if (this.world.destroySphere(at.x, at.y, at.z, m.r, out, { skip: HARD_BLOCKS })) { this.world.dirtyFlag = true; this.particles.debris(out, BLOCK_COLORS); }
@@ -1100,6 +1422,7 @@ class Game {
   // The attacker's own feedback: score, popups, blade wear, juice.
   applyOwnResult(o) {
     const p = this.soldier;
+    if (o.k === 'steam') { this.hud.toast('PARA! ODCZEKAJ'); return; }
     if (o.k === 'front') { this.hud.toast('ZAJDŹ GO OD TYŁU'); audio.play('clang', 0.6); p.blade = Math.max(0, p.blade - 4); return; }
     const at = new THREE.Vector3(...o.at);
     if (o.k === 'cut') {
@@ -1108,6 +1431,7 @@ class Game {
       this.hud.feed(o.label);
       if (o.label === 'POWALONY') { this.hud.toast('TYTAN POWALONY · TNIJ KARK'); this.say('down', 'Leży! Teraz kark, szybko, zanim wstanie!', true); }
       audio.play('cut', 0.6);
+      this.addRage(8);
       if (!this.multiplayer) this.hitStop = Math.max(this.hitStop, 0.04);
       this.fovKick = Math.max(this.fovKick, 3);
       this.shake(0.25);
@@ -1126,6 +1450,8 @@ class Game {
     this.hud.feed(`${o.ab ? 'ODMIENIEC' : 'TYTAN'} ${o.h} m ZABITY`);
     p.blade = Math.max(0, p.blade - 20);
     audio.play('nape');
+    this.addRage(34);
+    this.startKillCam(at, o.h);
     this.hud.flash('kflash');
     this.fovKick = 10;
     if (!this.multiplayer) { this.slowT = 0.55; this.hitStop = 0.05; }
@@ -1167,7 +1493,8 @@ class Game {
       seen.add(s.id);
       let t = this.titanById(s.id);
       if (!t) {
-        t = new Titan(this, { height: s.height, abnormal: s.abnormal, ally: s.ally, x: s.pos[0], z: s.pos[2], id: s.id, puppet: true });
+        t = new Titan(this, { height: s.height, abnormal: s.abnormal, ally: s.ally, x: s.pos[0], z: s.pos[2], id: s.id, puppet: true, boss: s.boss, look: s.boss ? TITAN_TYPES.find((x) => x.id === 'colossal').look : null });
+        if (s.boss) this.boss = t;
         this.titans.push(t);
       }
       if (!t.dead) t.pushNet(s, now);
@@ -1177,13 +1504,18 @@ class Game {
   }
 
   applyBoard(m) {
-    this.kills = m.kills; this.abnormalKills = m.abnormals; this.district = m.district;
+    this.kills = m.kills; this.abnormalKills = m.abnormals; this.district = m.district; this.bossHpNet = m.boss;
     if (this.state === 'play') this.elapsed = m.elapsed;
     this.renderBoard();
   }
 
   // ---------- titan-mode combat ----------
   killScout(s, label) {
+    if (s.titan) {
+      // the grab rips the nape out of anything small or off balance
+      const t = s.titan, rip = label === 'ZŁAPANY' && (t.height <= 12 || t.stagger > 0 || t.down);
+      return this.brawlHit(t, rip ? 999 : 60, rip ? 'KARK WYRWANY' : label);
+    }
     if (s.dead) return;
     s.kill();
     this.kills++;
@@ -1194,6 +1526,7 @@ class Game {
     audio.play('cut', 0.5);
   }
   damageScout(s, dmg, label) {
+    if (s.titan) return this.brawlHit(s.titan, dmg * 26, label);
     if (s.dead) return;
     s.hp -= dmg;
     if (s.hp <= 0) { this.killScout(s, label); return; }
@@ -1205,6 +1538,7 @@ class Game {
   }
   killScoutsNear(p, r, label) {
     for (const s of this.scouts) if (!s.dead && s.pos.distanceTo(p) < r) this.killScout(s, label);
+    if (this.transform) for (const s of this.titanProxies()) if (s.pos.distanceTo(p) < r + 2) this.brawlHit(s.titan, 30, label);
   }
 
   onTitanAtGate(t, dt) {
@@ -1214,6 +1548,7 @@ class Game {
   }
   onPlayerHurt(amount) { this.hud.flash(); this.shake(Math.min(1, amount / 30)); }
   onPlayerDeath() {
+    if (this.transform) { this.endTransform(true); return; }
     if (this.net && this.player === this.soldier) {
       // online you come back after a few seconds instead of losing the mission
       this.respawnAt = this.time + NET.respawn;
@@ -1248,7 +1583,8 @@ class Game {
         this.hud.toast(`MUZYKA: ${this.settings.music === 1 ? 'PEŁNA' : this.settings.music ? 'POŁOWA' : 'WYŁĄCZONA'}`);
       }
       if (inp.pressed('KeyV') && this.player === this.soldier) { this.settings.fp = !this.settings.fp; this.applySettings(); }
-      if (this.hitStop > 0) { this.hitStop -= dt; dt *= 0.1; }
+      if (this.killCam) dt *= 0.22;
+      else if (this.hitStop > 0) { this.hitStop -= dt; dt *= 0.1; }
       else if (this.slowT > 0) { this.slowT -= dt; dt *= 0.3 + 0.7 * Math.max(0, 1 - this.slowT / 0.55) ** 2; }
       this.time += dt;
       this.updatePlay(dt, realDt);
@@ -1309,11 +1645,18 @@ class Game {
     const cp = Math.cos(this.camPitch);
     this.camDir.set(-Math.sin(this.camYaw) * cp, Math.sin(this.camPitch), -Math.cos(this.camYaw) * cp);
 
+    if (m.side === 'soldier' && input.pressed('KeyT') && this.player === this.soldier) {
+      if (this.multiplayer) this.hud.toast('PRZEMIANA TYLKO W GRZE SOLO');
+      else if (this.rage < 100) this.hud.toast(`SZAŁ ${Math.floor(this.rage)}% · ZABIJAJ, BY GO NAPEŁNIĆ`);
+      else if (!this.soldier.dead) this.startTransform();
+    }
     this.player.update(dt, input);
+    this.updateTransform(dt);
+    this.updateBolt(realDt);
 
     if (m.side === 'soldier') {
       const p = this.soldier;
-      for (const s of this.world.supplies) {
+      if (this.player === p) for (const s of this.world.supplies) {
         if (Math.hypot(p.pos.x - s.x, p.pos.z - s.z) < 4.5 && Math.abs(p.pos.y - s.y) < 4 && p.resupply()) {
           this.hud.toast('UZUPEŁNIONO'); audio.play('supply');
           this.said.gas = false; this.said.blades = false;
@@ -1329,7 +1672,8 @@ class Game {
       const cap = cfg.max + (cfg.ramp ? Math.floor(this.elapsed / 35) : 0);
       this.spawnT -= dt;
       const extra = this.net ? Math.min(6, this.net.count - 1) * 2 : 0; // more players, more titans
-      if ((!this.net || this.net.isHost) && alive < Math.min(16, cap + extra) && this.spawnT <= 0) { this.spawnTitan(cfg); this.spawnT = 2.5; }
+      if (m.waves) this.updateWaves(dt, alive);
+      else if ((!this.net || this.net.isHost) && alive < Math.min(16, cap + extra) && this.spawnT <= 0) { this.spawnTitan(cfg); this.spawnT = 2.5; }
     } else {
       const T = this.titanPlayer;
       this.spawnT -= dt;
@@ -1366,6 +1710,7 @@ class Game {
       if (g.abnormals && this.abnormalKills >= g.abnormals) this.end(true, 'Odmieńcy leżą.');
       if (g.survive && this.elapsed >= g.survive) this.end(true, 'Linia obrony wytrzymała.');
       if (g.gate && this.gateBroken) this.end(true, 'Z bramy zostały gruzy. Ostoja stoi otworem.');
+      if (g.boss && this.bossDown) this.end(true, 'Kolos padł. Para opada nad murem.');
       if (m.time && this.elapsed >= m.time && this.state === 'play') this.end(false, 'Koniec czasu.');
     }
 
@@ -1376,6 +1721,7 @@ class Game {
   }
 
   updateCamera(dt) {
+    if (this.killCam) return this.updateKillCam(dt);
     const titan = this.player === this.titanPlayer;
     const fp = !titan && this.settings.fp;
     const P = this.player;
@@ -1452,12 +1798,27 @@ class Game {
     if (g.kills) { obj = `Zabij tytany: ${this.kills} / ${g.kills}`; prog = this.kills / g.kills; }
     if (g.abnormals) { obj = `Zabij odmieńców: ${this.abnormalKills} / ${g.abnormals}`; prog = this.abnormalKills / g.abnormals; }
     if (g.survive) { obj = 'Przetrwaj do końca odliczania'; prog = this.elapsed / g.survive; }
+    if (g.waves) {
+      const left = this.enemyTitans().length + this.waveQueue;
+      obj = this.wave === 0 || (left === 0 && this.waveBreak > 0) ? `Następna fala za ${Math.max(0, Math.ceil(this.waveBreak))} s` : `Fala ${this.wave} · zostało tytanów: ${left}`;
+      prog = this.wave ? 1 - left / (2 + this.wave * 2) : 0;
+    }
+    if (g.boss) {
+      const hp = this.boss ? (this.net && this.net.isClient ? this.bossHpNet ?? 5 : this.boss.dead ? 0 : this.boss.bossHp) : 0;
+      obj = `Kark Kolosa: ${5 - hp} / 5 cięć`; prog = (5 - hp) / 5;
+      hud.bar('bossBar', hp * 20);
+      hud.cls('bossWrap', 'steam', !!this.boss && this.boss.steaming);
+    }
+    hud.vis('bossWrap', !!g.boss && !!this.boss && !this.boss.dead);
     if (g.gate) { obj = 'Rozbij bramę albo przez nią przejdź'; prog = (100 - this.gatePct) / 70; }
     hud.text('objective', obj);
     hud.bar('objBar', prog * 100);
 
-    if (m.side === 'soldier') {
+    hud.vis('rageWrap', m.side === 'soldier' && !this.multiplayer && !this.transform);
+    if (m.side === 'soldier' && this.player === this.soldier) {
       const p = this.soldier;
+      hud.bar('rageBar', this.rage); hud.text('rageVal', this.rage >= 100 ? 'T · PRZEMIANA' : Math.floor(this.rage) + '%');
+      hud.cls('rageWrap', 'full', this.rage >= 100);
       const near = this.enemyTitans().filter((t) => t.pos.distanceTo(p.pos) < 60).length;
       hud.text('counts', `Tytany w pobliżu ${near} · zabite ${this.kills}`);
       hud.text('speed', `${Math.round(p.speed * 3.6)} km/h`);
@@ -1497,10 +1858,16 @@ class Game {
       hud.cls('crosshair', 'ready', ready);
     } else {
       const T = this.titanPlayer;
-      hud.text('counts', `Zwiadowcy ${this.scouts.filter((s) => !s.dead).length} · zabici ${this.kills}`);
-      hud.text('speed', T.type.name);
+      if (this.transform) {
+        hud.text('counts', `Przemiana ${Math.ceil(this.transform.dur - this.transform.t)} s · zabite ${this.kills}`);
+        hud.text('speed', `PRZEMIANA ${Math.ceil(this.transform.dur - this.transform.t)} s`);
+        if (m.district) { hud.bar('districtBar', this.district); hud.text('districtPct', Math.ceil(this.district) + '%'); }
+      } else {
+        hud.text('counts', `Zwiadowcy ${this.scouts.filter((s) => !s.dead).length} · zabici ${this.kills}`);
+        hud.text('speed', T.type.name);
+        hud.bar('districtBar', this.gatePct); hud.text('districtPct', Math.ceil(this.gatePct) + '%');
+      }
       hud.bar('hpBar', T.nape); hud.text('hpVal', String(Math.ceil(T.nape)));
-      hud.bar('districtBar', this.gatePct); hud.text('districtPct', Math.ceil(this.gatePct) + '%');
       hud.vis('gasLow', false); hud.vis('grabbed', false);
       const ab = T.type.abilities;
       const max = { lmb: T.small ? 0.45 : 0.8, rmb: 2, Q: ab.Q && ab.Q.cd, E: ab.E && ab.E.cd, F: ab.F && ab.F.cd };

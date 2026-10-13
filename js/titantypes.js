@@ -48,13 +48,13 @@ export const TITAN_TYPES = [
   },
   {
     id: 'beast', name: 'Bestia', h: 17, speed: 5, run: 8, armor: 0,
-    desc: 'Długie ręce i mocny rzut. Ciska wielkim głazem, który rozpryskuje się na odłamki.',
+    desc: 'Długie ręce i mocny rzut. Ciska wielkim głazem albo miażdży skałę w dłoni i sieje gradem odłamków.',
     look: { skin: '#6b5240', hair: '#4a3626', fur: true, longArms: true, face: 'stern', eye: '#e0c060', hunch: 0.25 },
     lmb: 'Plaśnięcie',
     abilities: {
-      Q: { type: 'throw', name: 'Głaz z odłamkami', cd: 4, n: 4 },
-      E: { type: 'scream', name: 'Ryk', cd: 16, r: 30 },
-      F: { type: 'summon', name: 'Przywołanie', cd: 30, n: 2 },
+      Q: { type: 'throw', mode: 'boulder', name: 'Głaz', cd: 4 },
+      E: { type: 'throw', mode: 'spray', name: 'Grad odłamków', cd: 6, n: 12 },
+      F: { type: 'summon', name: 'Ryk przywołania', cd: 30, n: 2, scream: { name: 'Ryk', r: 30 } },
     },
   },
   {
